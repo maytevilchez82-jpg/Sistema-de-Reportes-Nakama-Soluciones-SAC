@@ -904,6 +904,51 @@ button:hover{
     padding:22px;
 }
 
+/* Mobile: mantener el diseño de escritorio visualmente estable
+   en pantallas pequeñas evitamos el reflow/stacking y permitimos
+   desplazamiento horizontal para que la página se vea "tal cual".
+*/
+@media (max-width: 900px) {
+    html, body {
+        -webkit-text-size-adjust: 100%;
+        -ms-text-size-adjust: 100%;
+    }
+
+    /* Forzamos un ancho mínimo para que la estructura no colapse */
+    .container, .main, .report-card, .tabla {
+        min-width: 1000px;
+        max-width: none;
+    }
+
+    /* Convertimos contenedores a scroll horizontal en lugar de wrap */
+    .tabla-body, .report-card .report-chart, .report-filters, .inventory-sheet-tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        white-space: nowrap;
+    }
+
+    .report-filters {
+        flex-wrap: nowrap;
+        gap: 12px;
+    }
+
+    /* Evitar que los filtros se rompan en varias líneas */
+    .filter-badge, .report-product-btn, .sheet-tab, .sheet-new-btn, .sheet-action-btn {
+        display: inline-block;
+        white-space: nowrap;
+        min-width: 220px;
+        flex: 0 0 auto;
+        margin-right: 8px;
+    }
+
+    /* Hacer que las pestañas se muestren en línea y puedan scrollear */
+    .inventory-sheet-tabs { display: block; }
+    .inventory-sheet-tabs .sheet-tab { display: inline-block; margin-right:6px; }
+
+    /* Mejor experiencia táctil */
+    body { touch-action: pan-x pan-y; }
+}
+
 .report-chart{
     height:260px;
     background:#ffffff;
