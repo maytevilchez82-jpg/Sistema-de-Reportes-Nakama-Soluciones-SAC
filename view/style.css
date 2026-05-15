@@ -135,10 +135,17 @@ button:hover{
 
 .sidebar-brand img{
     width:180px;
-    height:170x;
+    height:140px;
     border-radius:14px;
     object-fit:cover;
    
+}
+
+/* Mantener el logo fijo dentro de la barra lateral para que no se mueva al hacer scroll */
+.sidebar-brand{
+    position:sticky;
+    top:20px;
+    z-index:20;
 }
 
 .sidebar-brand span{
