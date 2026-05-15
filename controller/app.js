@@ -709,30 +709,21 @@ function renderReportEmployeeFilterOptions() {
 
 function renderReportProductFilterOptions() {
     if (!window.APP_MODEL) return;
-    const container = document.getElementById('product-filter-buttons');
-    if (!container) return;
+    const select = document.getElementById('product-filter');
+    if (!select) return;
 
     generateReportesFromInventory();
     const products = Array.from(new Set((window.APP_MODEL.reportes || []).map(item => String(item.producto || '').trim()).filter(Boolean)));
     products.sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
-    const buttons = [];
-    buttons.push({ label: 'Todos los equipos', value: '' });
+    const options = ['<option value="">Todos los equipos</option>'];
     products.forEach(product => {
-        buttons.push({ label: product, value: product });
+        const safe = String(product).replace(/"/g, '&quot;');
+        options.push(`<option value="${safe}">${escapeHtml(product)}</option>`);
     });
 
-    container.innerHTML = buttons.map(btn => {
-        const active = btn.value && btn.value === selectedReportProduct ? ' active' : '';
-        const safe = String(btn.value).replace(/"/g, '&quot;');
-        return `<button type="button" class="report-product-btn${active}" data-value="${safe}">${escapeHtml(btn.label)}</button>`;
-    }).join('');
-
-    container.querySelectorAll('.report-product-btn').forEach(button => {
-        button.addEventListener('click', () => {
-            filterReportesByProduct(button.dataset.value || '');
-        });
-    });
+    select.innerHTML = options.join('');
+    select.value = selectedReportProduct || '';
 }
 
 function initializeCharts() {
