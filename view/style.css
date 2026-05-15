@@ -127,18 +127,23 @@ button:hover{
 .sidebar-brand{
     display:flex;
     align-items:center;
+    justify-content:center;
     gap:12px;
     margin-bottom:24px;
-    padding-bottom:18px;
+    padding:12px;
     border-bottom:1px solid rgba(255,255,255,0.18);
+    background:#07124a;
+    border-radius:12px;
 }
 
 .sidebar-brand img{
-    width:180px;
-    height:140px;
-    border-radius:14px;
-    object-fit:cover;
-   
+    width:100%;
+    height:auto;
+    max-width:140px;
+    max-height:120px;
+    border-radius:8px;
+    object-fit:contain;
+    display:block;
 }
 
 /* Mantener el logo fijo dentro de la barra lateral para que no se mueva al hacer scroll */
