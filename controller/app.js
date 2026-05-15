@@ -12,10 +12,61 @@ function login() {
 
 // Variable global para el filtro de mes
 let selectedMonth = '';
+// Variable global para el filtro de empleado en reporte
+let selectedReportEmployee = '';
+// Variable global para el filtro de producto/equipo en reporte
+let selectedReportProduct = '';
+// Variable global para el filtro de hoja de análisis
+let selectedAnalysisSheet = 'all';
 
 function filterReportesByMonth(month) {
     selectedMonth = month;
     renderReportes();
+}
+
+function filterReportesByEmployee(employee) {
+    selectedReportEmployee = employee || '';
+    renderReportes();
+}
+
+function filterReportesByProduct(product) {
+    selectedReportProduct = product || '';
+    renderReportes();
+}
+
+function setAnalysisSheetFilter(sheetKey) {
+    selectedAnalysisSheet = sheetKey || 'all';
+    saveInventoryToStorage();
+    renderAnalysis();
+}
+
+function getFilteredAnalysisInventory() {
+    ensureInventoryBySheetModel();
+    const sheetKey = selectedAnalysisSheet && selectedAnalysisSheet !== 'all' ? selectedAnalysisSheet : null;
+    if (sheetKey && window.APP_MODEL.inventoryBySheet && window.APP_MODEL.inventoryBySheet[sheetKey]) {
+        const bundle = getSheetBundle(sheetKey);
+        return (bundle.rows || []).map(row => rowToCanonical(row, bundle.fieldMap)).filter(isInventoryRowFilled);
+    }
+    return getAllInventoryFlat();
+}
+
+function renderAnalysisSheetFilterOptions() {
+    ensureInventoryBySheetModel();
+    const select = document.getElementById('analysis-sheet-filter');
+    if (!select || !window.APP_MODEL) return;
+
+    const keys = Object.keys(window.APP_MODEL.inventoryBySheet || {});
+    const current = selectedAnalysisSheet || 'all';
+    const options = ['<option value="all">Todas las hojas</option>'];
+    keys.forEach(name => {
+        const safeValue = String(name).replace(/"/g, '&quot;');
+        options.push(`<option value="${safeValue}">${escapeHtml(name)}</option>`);
+    });
+    select.innerHTML = options.join('');
+    if (current !== 'all' && !keys.includes(current)) {
+        selectedAnalysisSheet = 'all';
+    }
+    select.value = selectedAnalysisSheet;
 }
 
 function logout() {
@@ -66,7 +117,8 @@ function showPanel(panelId) {
 }
 
 function getAlertsFromInventory() {
-    const inventory = window.APP_MODEL && Array.isArray(window.APP_MODEL.inventory) ? window.APP_MODEL.inventory.filter(isInventoryRowFilled) : [];
+    ensureInventoryBySheetModel();
+    const inventory = getAllInventoryFlat();
     const alerts = [];
 
     if (!inventory.length) {
@@ -77,7 +129,7 @@ function getAlertsFromInventory() {
     // Detectar casos sin resolver
     const unresolved = inventory.filter(item => {
         const estado = String(item.estado || '').toLowerCase();
-        return !/resuelto|solucionado|entregado|ok/i.test(estado);
+        return !/resuelto|solucionado|entregado|ok|activo/i.test(estado);
     });
 
     if (unresolved.length > 0) {
@@ -102,7 +154,7 @@ function getAlertsFromInventory() {
     inventory.forEach(item => {
         const type = String(item.equipo || 'Desconocido').trim() || 'Desconocido';
         const estado = String(item.estado || '').toLowerCase();
-        const isResolved = /resuelto|solucionado|entregado|ok/i.test(estado);
+        const isResolved = /resuelto|solucionado|entregado|ok|activo/i.test(estado);
         const date = parseDate(item.fechaDevolucion) || parseDate(item.fechaEntrega);
 
         if (!typeStats[type]) {
@@ -151,24 +203,152 @@ function renderAlerts() {
     `).join('');
 }
 
+function getDefaultExcelFieldLabels() {
+    return {
+        empleado: 'Empleado',
+        equipo: 'Equipo',
+        descripcion: 'Descripción del problema',
+        fechaDevolucion: 'Fecha de devolución'
+    };
+}
+
+function getReportTableLabels() {
+    const d = getDefaultExcelFieldLabels();
+    const f = (window.APP_MODEL && window.APP_MODEL.excelFieldLabels) || {};
+    return {
+        empleado: (f.empleado && String(f.empleado).trim()) || d.empleado,
+        equipo: (f.equipo && String(f.equipo).trim()) || d.equipo,
+        descripcion: (f.descripcion && String(f.descripcion).trim()) || d.descripcion,
+        fecha: (f.fechaDevolucion && String(f.fechaDevolucion).trim()) || d.fechaDevolucion
+    };
+}
+
+function applyReportTableHeaderRow() {
+    const theadRow = document.querySelector('#reportes-panel .report-table thead tr');
+    if (!theadRow) return;
+    const L = getReportTableLabels();
+    theadRow.innerHTML = '';
+    ['empleado', 'equipo', 'descripcion'].forEach(key => {
+        const th = document.createElement('th');
+        th.textContent = L[key];
+        theadRow.appendChild(th);
+    });
+}
+
+function updateReportesSubtitle() {
+    const el = document.getElementById('reportes-subtitle');
+    if (!el) return;
+    const L = getReportTableLabels();
+    el.textContent = 'Encabezados alineados con el Excel: ' + L.empleado + ', ' + L.equipo + ', ' + L.descripcion + '.';
+}
+
+function pickReporteProblemaText(row, canon) {
+    if (canon.descripcion && String(canon.descripcion).trim()) {
+        return String(canon.descripcion).trim();
+    }
+    const directKeys = ['Síntomas', 'Sintomas', 'Causa', 'Asunto', 'Problema', 'Detalle', 'Observaciones'];
+    for (let i = 0; i < directKeys.length; i++) {
+        const k = directKeys[i];
+        if (row[k] != null && String(row[k]).trim()) {
+            return String(row[k]).trim();
+        }
+    }
+    const keys = Object.keys(row);
+    for (let i = 0; i < keys.length; i++) {
+        const col = keys[i];
+        const n = normalizeHeader(col);
+        if (/sintoma|causa|asunto|falla|error|diagnost|incidencia|detalle|motivo|descripcion|problema/.test(n)) {
+            const v = row[col];
+            if (v != null && String(v).trim()) {
+                return String(v).trim();
+            }
+        }
+    }
+    return '';
+}
+
+function pickReporteProductoText(row, canon) {
+    if (canon.equipo && String(canon.equipo).trim()) {
+        return String(canon.equipo).trim();
+    }
+    const directKeys = ['Máquina', 'Maquina', 'Equipo', 'Producto', 'Modelo', 'Activo', 'Serial'];
+    for (let i = 0; i < directKeys.length; i++) {
+        const k = directKeys[i];
+        if (row[k] != null && String(row[k]).trim()) {
+            return String(row[k]).trim();
+        }
+    }
+    const keys = Object.keys(row);
+    for (let i = 0; i < keys.length; i++) {
+        const col = keys[i];
+        const n = normalizeHeader(col);
+        if (/maquina|equipo|modelo|dispositivo|hardware|activo|serial/.test(n)) {
+            const v = row[col];
+            if (v != null && String(v).trim()) {
+                return String(v).trim();
+            }
+        }
+    }
+    return 'Desconocido';
+}
+
+function pickReporteEmpleadoText(row, canon) {
+    if (canon.empleado && String(canon.empleado).trim()) {
+        return String(canon.empleado).trim();
+    }
+    const directKeys = ['Empleado', 'Técnico', 'Tecnico', 'Contacto', 'Cliente', 'Solicitante', 'Responsable'];
+    for (let i = 0; i < directKeys.length; i++) {
+        const k = directKeys[i];
+        if (row[k] != null && String(row[k]).trim()) {
+            return String(row[k]).trim();
+        }
+    }
+    const keys = Object.keys(row);
+    for (let i = 0; i < keys.length; i++) {
+        const col = keys[i];
+        const n = normalizeHeader(col);
+        if (/empleado|trabajador|usuario|contacto|tecnico|solicitante|nombre/.test(n)) {
+            const v = row[col];
+            if (v != null && String(v).trim()) {
+                return String(v).trim();
+            }
+        }
+    }
+    return 'N/A';
+}
+
 function generateReportesFromInventory() {
-    const inventory = window.APP_MODEL && Array.isArray(window.APP_MODEL.inventory) ? window.APP_MODEL.inventory.filter(isInventoryRowFilled) : [];
+    ensureInventoryBySheetModel();
+    const m = window.APP_MODEL && window.APP_MODEL.inventoryBySheet;
     const reportes = [];
-    
-    inventory.forEach(item => {
-        if (item.descripcion && item.descripcion.trim()) {
-            const date = parseDate(item.fechaDevolucion) || parseDate(item.fechaEntrega) || new Date();
+    if (!m || typeof m !== 'object') {
+        if (!window.APP_MODEL) {
+            window.APP_MODEL = {};
+        }
+        window.APP_MODEL.reportes = [];
+        return;
+    }
+
+    Object.keys(m).forEach(sheetKey => {
+        const b = getSheetBundle(sheetKey);
+        (b.rows || []).forEach(row => {
+            const canon = rowToCanonical(row, b.fieldMap);
+            const problema = pickReporteProblemaText(row, canon);
+            if (!problema) {
+                return;
+            }
+            const date = parseDate(canon.fechaDevolucion) || parseDate(canon.fechaEntrega) || new Date();
             reportes.push({
-                empleado: String(item.empleado || '').trim() || 'N/A',
-                producto: item.equipo || 'Desconocido',
-                problema: item.descripcion,
+                empleado: pickReporteEmpleadoText(row, canon),
+                producto: pickReporteProductoText(row, canon),
+                problema,
                 mes: date.getMonth() + 1,
                 año: date.getFullYear(),
                 fecha: date
             });
-        }
+        });
     });
-    
+
     if (!window.APP_MODEL) {
         window.APP_MODEL = {};
     }
@@ -185,21 +365,41 @@ function getFilteredReportes() {
         const currentYear = new Date().getFullYear();
         filtered = filtered.filter(item => item.mes === monthNum && item.año === currentYear);
     }
+    if (selectedReportEmployee) {
+        filtered = filtered.filter(item => String(item.empleado || '').trim() === String(selectedReportEmployee).trim());
+    }
+    if (selectedReportProduct) {
+        filtered = filtered.filter(item => String(item.producto || '').trim() === String(selectedReportProduct).trim());
+    }
     
+    filtered.sort((a, b) => {
+        const empleadoA = String(a.empleado || '').localeCompare(String(b.empleado || ''), 'es', { sensitivity: 'base' });
+        if (empleadoA !== 0) return empleadoA;
+        return String(a.producto || '').localeCompare(String(b.producto || ''), 'es', { sensitivity: 'base' });
+    });
     return filtered;
 }
 
 function renderReportes() {
     generateReportesFromInventory();
-    const tbody = document.querySelector('.report-table tbody');
+    applyReportTableHeaderRow();
+    updateReportesSubtitle();
+    renderReportEmployeeFilterOptions();
+    renderReportProductFilterOptions();
+    const tbody = document.querySelector('#reportes-panel .report-table tbody');
     if (!tbody || !window.APP_MODEL) return;
 
     const reportes = getFilteredReportes();
+    if (!reportes.length) {
+        tbody.innerHTML = '<tr><td colspan="3" class="report-empty-row">No hay incidencias con texto en columnas de problema, síntomas, causa o asunto. Revisa el mapeo del Excel o el filtro de mes.</td></tr>';
+        renderReportChart();
+        return;
+    }
     tbody.innerHTML = reportes.map(item => `
         <tr>
-            <td>${item.empleado || 'N/A'}</td>
-            <td>${item.producto}</td>
-            <td>${item.problema}</td>
+            <td>${escapeHtml(item.empleado || 'N/A')}</td>
+            <td>${escapeHtml(String(item.producto || ''))}</td>
+            <td>${escapeHtml(String(item.problema || ''))}</td>
         </tr>
     `).join('');
     renderReportChart();
@@ -208,49 +408,74 @@ function renderReportes() {
 function loadInventoryFromStorage() {
     const stored = localStorage.getItem('inventoryData');
     if (!stored) {
-        if (!window.APP_MODEL) {
-            window.APP_MODEL = {};
-        }
-        window.APP_MODEL.inventory = [];
+        ensureInventoryBySheetModel();
         return;
     }
 
     try {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-            if (!window.APP_MODEL) {
-                window.APP_MODEL = {};
-            }
-            window.APP_MODEL.inventory = parsed;
+        if (!window.APP_MODEL) {
+            window.APP_MODEL = {};
+        }
+        if (Array.isArray(parsed)) {
+            window.APP_MODEL.inventoryBySheet = { Principal: parsed };
+            window.APP_MODEL.activeInventorySheet = 'Principal';
+            window.APP_MODEL.excelFieldLabels = getDefaultExcelFieldLabels();
+            delete window.APP_MODEL.inventory;
+        } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.inventory) && !parsed.inventoryBySheet) {
+            window.APP_MODEL.inventoryBySheet = { Principal: parsed.inventory };
+            window.APP_MODEL.activeInventorySheet = 'Principal';
+            window.APP_MODEL.excelFieldLabels = getDefaultExcelFieldLabels();
+            delete window.APP_MODEL.inventory;
+        } else if (parsed && typeof parsed === 'object' && parsed.inventoryBySheet && typeof parsed.inventoryBySheet === 'object') {
+            window.APP_MODEL.inventoryBySheet = parsed.inventoryBySheet;
+            const keys = Object.keys(window.APP_MODEL.inventoryBySheet);
+            window.APP_MODEL.activeInventorySheet = (parsed.activeInventorySheet && window.APP_MODEL.inventoryBySheet[parsed.activeInventorySheet])
+                ? parsed.activeInventorySheet
+                : (keys[0] || 'Principal');
+            selectedAnalysisSheet = parsed.analysisSheetFilter || 'all';
+            window.APP_MODEL.excelFieldLabels = (parsed.excelFieldLabels && typeof parsed.excelFieldLabels === 'object')
+                ? Object.assign({}, getDefaultExcelFieldLabels(), parsed.excelFieldLabels)
+                : getDefaultExcelFieldLabels();
+            delete window.APP_MODEL.inventory;
         } else {
-            if (!window.APP_MODEL) {
-                window.APP_MODEL = {};
-            }
-            window.APP_MODEL.inventory = [];
+            ensureInventoryBySheetModel();
         }
     } catch (error) {
         console.warn('Error leyendo inventoryData desde localStorage', error);
         if (!window.APP_MODEL) {
             window.APP_MODEL = {};
         }
-        window.APP_MODEL.inventory = [];
+        window.APP_MODEL.inventoryBySheet = { Principal: blankSheetBundle() };
+        window.APP_MODEL.activeInventorySheet = 'Principal';
+        window.APP_MODEL.excelFieldLabels = getDefaultExcelFieldLabels();
+        delete window.APP_MODEL.inventory;
     }
 }
 
 function saveInventoryToStorage() {
-    if (!window.APP_MODEL || !window.APP_MODEL.inventory) return;
+    if (!window.APP_MODEL) return;
+    ensureInventoryBySheetModel();
     try {
-        localStorage.setItem('inventoryData', JSON.stringify(window.APP_MODEL.inventory));
+        localStorage.setItem('inventoryData', JSON.stringify({
+            inventoryBySheet: window.APP_MODEL.inventoryBySheet,
+            activeInventorySheet: window.APP_MODEL.activeInventorySheet,
+            excelFieldLabels: window.APP_MODEL.excelFieldLabels || getDefaultExcelFieldLabels(),
+            analysisSheetFilter: selectedAnalysisSheet || 'all'
+        }));
     } catch (error) {
         console.warn('Error guardando inventoryData en localStorage', error);
     }
 }
 
-function updateInventoryItem(index, field, value) {
-    if (!window.APP_MODEL || !window.APP_MODEL.inventory) return;
-    const row = window.APP_MODEL.inventory[index];
-    if (!row || !(field in row)) return;
-    row[field] = value;
+function updateInventoryItem(index, colIndex, value) {
+    ensureInventoryBySheetModel();
+    const bundle = getActiveSheetBundle();
+    const rows = bundle.rows;
+    const row = rows[index];
+    if (!row || colIndex < 0 || colIndex >= bundle.columns.length) return;
+    const colKey = bundle.columns[colIndex];
+    row[colKey] = value;
     saveInventoryToStorage();
     
     // Actualizar todos los paneles en cascada
@@ -267,13 +492,52 @@ function updateInventoryItem(index, field, value) {
 let analysisTrendChart = null;
 let analysisTypeChart = null;
 let reportChart = null;
-const analysisTypeColors = ['#e17055', '#6c5ce7', '#74b9ff', '#00b894', '#00d2d3'];
+const analysisTypeColors = ['#e17055', '#6c5ce7', '#74b9ff', '#00b894', '#00d2d3', '#fdcb6e', '#e84393', '#00cec9'];
+const analysisTypeColorMap = {};
+
+function getAnalysisTypeColor(label) {
+    if (!label) {
+        return '#cccccc';
+    }
+    if (analysisTypeColorMap[label]) {
+        return analysisTypeColorMap[label];
+    }
+    const existingColors = Object.values(analysisTypeColorMap);
+    const nextColor = analysisTypeColors[existingColors.length % analysisTypeColors.length];
+    analysisTypeColorMap[label] = nextColor;
+    return nextColor;
+}
+
+function getAnalysisTypeColors(labels) {
+    return labels.map(label => getAnalysisTypeColor(label));
+}
 
 function formatMonthShortEs(date) {
     // Ej: "ene", "feb" → "Ene", "Feb"; también elimina el punto si el navegador lo añade.
     const raw = date.toLocaleString('es-ES', { month: 'short' }).replace('.', '').trim();
     if (!raw) return '';
     return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+function wrapChartLabel(label, maxLength) {
+    if (!label || typeof label !== 'string') return label;
+    const words = label.split(/\s+/);
+    const lines = [];
+    let current = '';
+    words.forEach(word => {
+        if (!current) {
+            current = word;
+            return;
+        }
+        if ((current + ' ' + word).length <= maxLength) {
+            current += ' ' + word;
+        } else {
+            lines.push(current);
+            current = word;
+        }
+    });
+    if (current) lines.push(current);
+    return lines.length > 1 ? lines : lines[0];
 }
 
 function renderTypeLegend(labels, colors) {
@@ -288,8 +552,18 @@ function renderTypeLegend(labels, colors) {
     }).join('');
 }
 
+function getFailureDatesFromInventory(inventory) {
+    const dates = [];
+    inventory.forEach(item => {
+        const date = parseDate(item.fechaDevolucion) || parseDate(item.fechaEntrega);
+        if (date) dates.push(date);
+    });
+    return dates.sort((a, b) => a - b);
+}
+
 function buildTrendData() {
-    const inventory = window.APP_MODEL && Array.isArray(window.APP_MODEL.inventory) ? window.APP_MODEL.inventory.filter(isInventoryRowFilled) : [];
+    ensureInventoryBySheetModel();
+    const inventory = getFilteredAnalysisInventory();
     const now = new Date();
     const labels = [];
     const counts = [];
@@ -313,7 +587,7 @@ function buildTrendData() {
         }
     });
 
-    const prediction = predictNextFailureCount(counts);
+    const prediction = predictNextFailureCount(counts, inventory);
     const nextDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     const nextLabel = formatMonthShortEs(nextDate);
 
@@ -326,7 +600,7 @@ function buildTrendData() {
     };
 }
 
-function predictNextFailureCount(counts) {
+function predictNextFailureCount(counts, inventory) {
     const values = counts.slice();
     const n = values.length;
     if (n === 0) {
@@ -334,6 +608,17 @@ function predictNextFailureCount(counts) {
     }
     const total = values.reduce((a, b) => a + b, 0);
     if (total === 0) {
+        const dates = getFailureDatesFromInventory(inventory || []);
+        if (dates.length) {
+            const firstDate = dates[0];
+            const lastDate = dates[dates.length - 1];
+            const monthSpan = Math.max(1, Math.ceil(((lastDate - firstDate) / 86400000) / 30));
+            const avgPerMonth = Math.max(1, Math.round(dates.length / monthSpan));
+            return {
+                count: avgPerMonth,
+                reason: 'No hay fallos en los últimos 6 meses, se estima según el historial completo del Excel.'
+            };
+        }
         return { count: 0, reason: 'No hay fallos registrados en los últimos 6 meses.' };
     }
 
@@ -363,41 +648,30 @@ function predictNextFailureCount(counts) {
     return { count: predicted, reason };
 }
 
-const EQUIPMENT_TYPES = [
-    'Cargador de laptop USB-C',
-    'Laptop',
-    'Mouse',
-    'Teclado',
-    'Monitor'
-];
-
 function buildTypeDistribution() {
-    const inventory = window.APP_MODEL && Array.isArray(window.APP_MODEL.inventory) ? window.APP_MODEL.inventory.filter(isInventoryRowFilled) : [];
-    
-    // Distribución histórica de eventos registrados en el Excel por tipo de equipo.
-    const failureCounts = {};
-    EQUIPMENT_TYPES.forEach(type => {
-        failureCounts[type] = 0;
-    });
+    ensureInventoryBySheetModel();
+    const inventory = getFilteredAnalysisInventory();
 
+    const counts = {};
     inventory.forEach(item => {
         const type = String(item.equipo || '').trim();
-        
-        // Si el equipo no está en la lista predefinida, ignorarlo para el gráfico
-        if (EQUIPMENT_TYPES.includes(type)) {
-            failureCounts[type] += 1;
-        }
+        if (!type) return;
+        counts[type] = (counts[type] || 0) + 1;
     });
 
-    const labels = EQUIPMENT_TYPES.filter(t => failureCounts[t] > 0);
-    const data = labels.map(t => failureCounts[t]);
-    if (!labels.length) {
+    const sortedEntries = Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
+
+    if (!sortedEntries.length) {
         return { labels: ['Sin datos'], data: [1] };
     }
 
-    return { 
+    const labels = sortedEntries.map(([label]) => label);
+    return {
         labels,
-        data
+        data: sortedEntries.map(([, value]) => value),
+        colors: getAnalysisTypeColors(labels)
     };
 }
 
@@ -412,6 +686,44 @@ function buildReportChartData() {
     const labels = Object.keys(counts).slice(0, 5);
     const data = labels.map(label => counts[label]);
     return { labels, data };
+}
+
+function renderReportEmployeeFilterOptions() {
+    if (!window.APP_MODEL) return;
+    const select = document.getElementById('employee-filter');
+    if (!select) return;
+
+    generateReportesFromInventory();
+    const employees = Array.from(new Set((window.APP_MODEL.reportes || []).map(item => String(item.empleado || '').trim()).filter(Boolean)));
+    employees.sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+
+    const options = ['<option value="">Todos los empleados</option>'];
+    employees.forEach(name => {
+        const safe = String(name).replace(/"/g, '&quot;');
+        options.push(`<option value="${safe}">${escapeHtml(name)}</option>`);
+    });
+
+    select.innerHTML = options.join('');
+    select.value = selectedReportEmployee || '';
+}
+
+function renderReportProductFilterOptions() {
+    if (!window.APP_MODEL) return;
+    const select = document.getElementById('product-filter');
+    if (!select) return;
+
+    generateReportesFromInventory();
+    const products = Array.from(new Set((window.APP_MODEL.reportes || []).map(item => String(item.producto || '').trim()).filter(Boolean)));
+    products.sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+
+    const options = ['<option value="">Todos los equipos</option>'];
+    products.forEach(product => {
+        const safe = String(product).replace(/"/g, '&quot;');
+        options.push(`<option value="${safe}">${escapeHtml(product)}</option>`);
+    });
+
+    select.innerHTML = options.join('');
+    select.value = selectedReportProduct || '';
 }
 
 function initializeCharts() {
@@ -456,8 +768,10 @@ function initializeCharts() {
                 labels: [],
                 datasets: [{
                     data: [],
-                    backgroundColor: analysisTypeColors,
-                    borderWidth: 0
+                    backgroundColor: [],
+                    borderColor: [],
+                    borderWidth: 2,
+                    hoverOffset: 8
                 }]
             },
             options: {
@@ -488,7 +802,18 @@ function initializeCharts() {
                     legend: { display: false }
                 },
                 scales: {
-                    x: { ticks: { maxRotation: 30, minRotation: 0 } },
+                    x: {
+                        ticks: {
+                            maxRotation: 0,
+                            minRotation: 0,
+                            callback: function(value, index) {
+                                const label = this.chart && this.chart.data && this.chart.data.labels
+                                    ? this.chart.data.labels[index] || value
+                                    : value;
+                                return wrapChartLabel(label, 22);
+                            }
+                        }
+                    },
                     y: { beginAtZero: true }
                 }
             }
@@ -512,8 +837,10 @@ function updateAnalysisCharts(data) {
     if (analysisTypeChart) {
         analysisTypeChart.data.labels = typeData.labels;
         analysisTypeChart.data.datasets[0].data = typeData.data;
+        analysisTypeChart.data.datasets[0].backgroundColor = typeData.colors;
+        analysisTypeChart.data.datasets[0].borderColor = typeData.colors.map(color => color || '#fff');
         analysisTypeChart.update();
-        renderTypeLegend(typeData.labels, analysisTypeColors);
+        renderTypeLegend(typeData.labels, typeData.colors);
     }
 
     renderReportChart();
@@ -531,20 +858,14 @@ function addInventoryRow() {
     if (!window.APP_MODEL) {
         window.APP_MODEL = {};
     }
-    if (!Array.isArray(window.APP_MODEL.inventory)) {
-        window.APP_MODEL.inventory = [];
-    }
-
-    window.APP_MODEL.inventory.push({
-        empleado: '',
-        equipo: '',
-        marca: '',
-        fechaDevolucion: '',
-        descripcion: '',
-        accion: '',
-        fechaEntrega: '',
-        estado: ''
+    ensureInventoryBySheetModel();
+    const key = getActiveInventorySheetKey();
+    const bundle = getSheetBundle(key);
+    const empty = {};
+    bundle.columns.forEach(col => {
+        empty[col] = '';
     });
+    bundle.rows.push(empty);
 
     saveInventoryToStorage();
     
@@ -559,8 +880,10 @@ function addInventoryRow() {
 }
 
 function deleteInventoryRow(index) {
-    if (!window.APP_MODEL || !window.APP_MODEL.inventory) return;
-    window.APP_MODEL.inventory.splice(index, 1);
+    ensureInventoryBySheetModel();
+    const rows = getActiveInventoryRows();
+    if (!rows || index < 0 || index >= rows.length) return;
+    rows.splice(index, 1);
     saveInventoryToStorage();
     
     // Actualizar todos los paneles
@@ -577,14 +900,213 @@ function isInventoryRowFilled(row) {
     return Object.values(row).some(value => String(value || '').trim() !== '');
 }
 
+function defaultInventoryFieldMap() {
+    return {
+        empleado: 'Empleado',
+        equipo: 'Equipo',
+        marca: 'Marca',
+        fechaDevolucion: 'Fecha de devolución',
+        descripcion: 'Descripción del problema',
+        accion: 'Acción tomada',
+        fechaEntrega: 'Fecha que se le entregó uno nuevo',
+        estado: 'Estado'
+    };
+}
+
+function getDefaultInventoryColumns() {
+    return [
+        'Empleado',
+        'Equipo',
+        'Marca',
+        'Fecha de devolución',
+        'Descripción del problema',
+        'Acción tomada',
+        'Fecha que se le entregó uno nuevo',
+        'Estado'
+    ];
+}
+
+function blankSheetBundle() {
+    return {
+        columns: getDefaultInventoryColumns().slice(),
+        rows: [],
+        fieldMap: defaultInventoryFieldMap()
+    };
+}
+
+function legacyRowToDynamic(row) {
+    const fm = defaultInventoryFieldMap();
+    const o = {};
+    Object.keys(fm).forEach(internal => {
+        const col = fm[internal];
+        o[col] = row && row[internal] != null ? String(row[internal]) : '';
+    });
+    return o;
+}
+
+function legacyArrayToBundle(arr) {
+    return {
+        columns: getDefaultInventoryColumns().slice(),
+        rows: (arr || []).map(legacyRowToDynamic),
+        fieldMap: defaultInventoryFieldMap()
+    };
+}
+
+function getSheetBundle(sheetKey) {
+    ensureInventoryBySheetModel();
+    const m = window.APP_MODEL.inventoryBySheet;
+    const raw = m[sheetKey];
+    if (!raw) {
+        return blankSheetBundle();
+    }
+    if (Array.isArray(raw)) {
+        const b = legacyArrayToBundle(raw);
+        m[sheetKey] = b;
+        return b;
+    }
+    const defCols = getDefaultInventoryColumns();
+    const columns = Array.isArray(raw.columns) && raw.columns.length ? raw.columns.slice() : defCols.slice();
+    const fieldMap = (raw.fieldMap && typeof raw.fieldMap === 'object')
+        ? Object.assign(defaultInventoryFieldMap(), raw.fieldMap)
+        : defaultInventoryFieldMap();
+    const rows = Array.isArray(raw.rows) ? raw.rows : [];
+    return { columns, rows, fieldMap };
+}
+
+function getActiveSheetBundle() {
+    return getSheetBundle(getActiveInventorySheetKey());
+}
+
+function rowToCanonical(row, fieldMap) {
+    const fm = fieldMap || defaultInventoryFieldMap();
+    const out = emptyInventoryRow();
+    Object.keys(out).forEach(internal => {
+        const colKey = fm[internal];
+        if (!colKey || !row) return;
+        const rawVal = row[colKey];
+        if (internal === 'fechaDevolucion' || internal === 'fechaEntrega') {
+            const dt = parseDate(String(rawVal || ''));
+            out[internal] = dt ? formatDateEs(dt) : String(rawVal || '').trim();
+        } else {
+            out[internal] = String(rawVal == null ? '' : rawVal).trim();
+        }
+    });
+    return out;
+}
+
+function isDynamicRowFilled(row) {
+    if (!row || typeof row !== 'object') return false;
+    return Object.keys(row).some(k => String(row[k] || '').trim() !== '');
+}
+
+function getAllInventoryFlat() {
+    const m = window.APP_MODEL && window.APP_MODEL.inventoryBySheet;
+    if (!m || typeof m !== 'object') {
+        return [];
+    }
+    return Object.keys(m).flatMap(k => {
+        const b = getSheetBundle(k);
+        return (b.rows || []).map(row => rowToCanonical(row, b.fieldMap)).filter(isInventoryRowFilled);
+    });
+}
+
+function ensureInventoryBySheetModel() {
+    if (!window.APP_MODEL) {
+        window.APP_MODEL = {};
+    }
+    if (window.APP_MODEL.inventoryBySheet && typeof window.APP_MODEL.inventoryBySheet === 'object') {
+        const keys = Object.keys(window.APP_MODEL.inventoryBySheet);
+        if (!keys.length) {
+            window.APP_MODEL.inventoryBySheet = { Principal: blankSheetBundle() };
+        }
+        keys.forEach(k => {
+            if (Array.isArray(window.APP_MODEL.inventoryBySheet[k])) {
+                window.APP_MODEL.inventoryBySheet[k] = legacyArrayToBundle(window.APP_MODEL.inventoryBySheet[k]);
+            }
+        });
+        const cur = window.APP_MODEL.activeInventorySheet;
+        if (!cur || !window.APP_MODEL.inventoryBySheet[cur]) {
+            window.APP_MODEL.activeInventorySheet = Object.keys(window.APP_MODEL.inventoryBySheet)[0];
+        }
+        if (!window.APP_MODEL.excelFieldLabels || typeof window.APP_MODEL.excelFieldLabels !== 'object') {
+            window.APP_MODEL.excelFieldLabels = getDefaultExcelFieldLabels();
+        }
+        return;
+    }
+    const fromFlat = Array.isArray(window.APP_MODEL.inventory) ? window.APP_MODEL.inventory : [];
+    window.APP_MODEL.inventoryBySheet = {
+        Principal: fromFlat.length ? legacyArrayToBundle(fromFlat) : blankSheetBundle()
+    };
+    window.APP_MODEL.activeInventorySheet = 'Principal';
+    delete window.APP_MODEL.inventory;
+    if (!window.APP_MODEL.excelFieldLabels || typeof window.APP_MODEL.excelFieldLabels !== 'object') {
+        window.APP_MODEL.excelFieldLabels = getDefaultExcelFieldLabels();
+    }
+}
+
+function getActiveInventorySheetKey() {
+    ensureInventoryBySheetModel();
+    const m = window.APP_MODEL.inventoryBySheet;
+    const keys = Object.keys(m);
+    const cur = window.APP_MODEL.activeInventorySheet;
+    if (cur && m[cur]) {
+        return cur;
+    }
+    window.APP_MODEL.activeInventorySheet = keys[0] || 'Principal';
+    return window.APP_MODEL.activeInventorySheet;
+}
+
+function getActiveInventoryRows() {
+    return getActiveSheetBundle().rows;
+}
+
+function setActiveInventorySheet(sheetKey) {
+    commitActiveEdit();
+    ensureInventoryBySheetModel();
+    if (!sheetKey || !window.APP_MODEL.inventoryBySheet[sheetKey]) {
+        return;
+    }
+    window.APP_MODEL.activeInventorySheet = sheetKey;
+    saveInventoryToStorage();
+    renderInventory();
+}
+
+function addInventorySheetTab() {
+    commitActiveEdit();
+    ensureInventoryBySheetModel();
+    const suggested = 'Nueva hoja';
+    const input = prompt('Nombre de la nueva hoja (como una pestaña de Excel):', suggested);
+    if (input === null) {
+        return;
+    }
+    let name = String(input).trim() || suggested;
+    const m = window.APP_MODEL.inventoryBySheet;
+    const original = name;
+    let n = 2;
+    while (m[name]) {
+        name = `${original} (${n})`;
+        n += 1;
+    }
+    m[name] = blankSheetBundle();
+    window.APP_MODEL.activeInventorySheet = name;
+    saveInventoryToStorage();
+    setTimeout(() => {
+        renderInventory();
+        renderMetrics();
+        renderAnalysis();
+        renderAlerts();
+        renderReportes();
+    }, 50);
+}
+
 function getInventoryMetrics() {
-    const inventory = window.APP_MODEL && Array.isArray(window.APP_MODEL.inventory) ? window.APP_MODEL.inventory : [];
-    const filledInventory = inventory.filter(isInventoryRowFilled);
+    ensureInventoryBySheetModel();
+    const filledInventory = getAllInventoryFlat();
     const total = filledInventory.length;
-    const resolvedCount = filledInventory.filter(item => item.estado && /resuelto/i.test(item.estado)).length;
+    const resolvedCount = filledInventory.filter(item => item.estado && /resuelto|solucionado|entregado|ok|activo/i.test(item.estado)).length;
     const alertsCount = filledInventory.filter(item => {
         const estado = item.estado || '';
-        const isResolved = /resuelto|solucionado|entregado|ok/i.test(estado);
+        const isResolved = /resuelto|solucionado|entregado|ok|activo/i.test(estado);
         return !isResolved;
     }).length;
     const utilization = total ? Math.round((resolvedCount / total) * 100) : 0;
@@ -843,7 +1365,8 @@ function predictNextFailureEvent(inventory) {
 }
 
 function getAnalysisData() {
-    const inventory = window.APP_MODEL && Array.isArray(window.APP_MODEL.inventory) ? window.APP_MODEL.inventory.filter(isInventoryRowFilled) : [];
+    ensureInventoryBySheetModel();
+    const inventory = getFilteredAnalysisInventory();
     const now = new Date();
     const nextFailure = predictNextFailureEvent(inventory);
     const trend = buildTrendData();
@@ -857,7 +1380,7 @@ function getAnalysisData() {
         const estadoText = String(item.estado || '').toLowerCase();
         const date = parseDate(item.fechaDevolucion) || parseDate(item.fechaEntrega) || now;
         const ageDays = daysBetween(date, now);
-        const isResolved = /resuelto|solucionado|entregado|ok/i.test(estadoText);
+        const isResolved = /resuelto|solucionado|entregado|ok|activo/i.test(estadoText);
         
         if (!equipoStats[equipo]) {
             equipoStats[equipo] = {
@@ -994,6 +1517,7 @@ function getAnalysisData() {
 function renderAnalysis() {
     // Asegurar charts disponibles al entrar al panel
     initializeCharts();
+    renderAnalysisSheetFilterOptions();
     const data = getAnalysisData();
     const riskEl = document.getElementById('analysis-risk');
     const riskPercentageEl = document.getElementById('analysis-risk-percentage');
@@ -1060,54 +1584,314 @@ function normalizeHeader(value) {
     return value.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
 
-function parseInventoryFromWorkbook(workbook) {
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-    const fieldMap = {
+function emptyInventoryRow() {
+    return {
+        empleado: '',
+        equipo: '',
+        marca: '',
+        fechaDevolucion: '',
+        descripcion: '',
+        accion: '',
+        fechaEntrega: '',
+        estado: ''
+    };
+}
+
+function coerceInventoryImportValue(rawValue, field) {
+    if (rawValue === null || rawValue === undefined || rawValue === '') {
+        return '';
+    }
+    if ((field === 'fechaDevolucion' || field === 'fechaEntrega') && typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+        const serial = Math.floor(rawValue);
+        if (serial > 200 && serial < 1000000) {
+            const excelEpoch = new Date(1899, 11, 30);
+            const dt = new Date(excelEpoch.getTime() + serial * 86400000);
+            if (!isNaN(dt)) {
+                return formatDateEs(dt);
+            }
+        }
+    }
+    if ((field === 'fechaDevolucion' || field === 'fechaEntrega') && rawValue instanceof Date && !isNaN(rawValue)) {
+        return formatDateEs(rawValue);
+    }
+    if (field === 'fechaDevolucion' || field === 'fechaEntrega') {
+        const dt = parseDate(String(rawValue).trim());
+        if (dt) {
+            return formatDateEs(dt);
+        }
+    }
+    return String(rawValue).trim();
+}
+
+function isDateLikeColumnKey(colKey) {
+    const h = normalizeHeader(String(colKey || ''));
+    if (!h) {
+        return false;
+    }
+    if (/cont\.?\s*ini|ini\s*\/\s*fin|conteo|folio\s*ini|nro\.?\s*contrato\s*$/.test(h)) {
+        return false;
+    }
+    if (/datetime|timestamp|vencimiento|caducidad|fecha\s*y\s*hora/.test(h)) {
+        return true;
+    }
+    if (/\bfecha\b|^fecha|fecha$|fecha\s*:|fecha\s+de|fecha\s+del|fecha\s+hasta|fecha\s+desde|\/fecha/.test(h)) {
+        return true;
+    }
+    if (/\bdate\b|^date|_date$|-date$/.test(h)) {
+        return true;
+    }
+    return false;
+}
+
+function coerceExcelDateValue(raw) {
+    if (raw === null || raw === undefined || raw === '') {
+        return '';
+    }
+    if (raw instanceof Date && !isNaN(raw)) {
+        return formatDateEs(raw);
+    }
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+        const serial = Math.floor(raw);
+        if (serial > 200 && serial < 1000000) {
+            const excelEpoch = new Date(1899, 11, 30);
+            const dt = new Date(excelEpoch.getTime() + serial * 86400000);
+            if (!isNaN(dt)) {
+                return formatDateEs(dt);
+            }
+        }
+    }
+    const s = String(raw).trim();
+    const dt = parseDate(s);
+    return dt ? formatDateEs(dt) : s;
+}
+
+function internalFieldForColumnKey(colKey, fieldMap) {
+    const fm = fieldMap || {};
+    let found = null;
+    Object.keys(fm).forEach(internal => {
+        if (fm[internal] === colKey) {
+            found = internal;
+        }
+    });
+    return found;
+}
+
+function stringifyImportedCell(raw, colKey, fieldMap) {
+    const internal = internalFieldForColumnKey(colKey, fieldMap);
+    if (internal === 'fechaDevolucion' || internal === 'fechaEntrega') {
+        return coerceInventoryImportValue(raw, internal);
+    }
+    if (isDateLikeColumnKey(colKey)) {
+        return coerceExcelDateValue(raw);
+    }
+    if (raw instanceof Date && !isNaN(raw)) {
+        return formatDateEs(raw);
+    }
+    return raw == null ? '' : String(raw).trim();
+}
+
+function makeUniqueColumnKeys(displayHeaders) {
+    const used = new Set();
+    const columns = [];
+    displayHeaders.forEach((base, idx) => {
+        let key = String(base == null ? '' : base).trim() || `Columna ${idx + 1}`;
+        let candidate = key;
+        let n = 2;
+        while (used.has(candidate)) {
+            candidate = `${key} (${n})`;
+            n += 1;
+        }
+        used.add(candidate);
+        columns.push(candidate);
+    });
+    return columns;
+}
+
+function resolveInventoryFieldFromHeader(rawHeader) {
+    const h = normalizeHeader(rawHeader);
+    if (!h || /^unnamed/.test(h)) {
+        return null;
+    }
+
+    const exact = {
         empleado: 'empleado',
         equipo: 'equipo',
         marca: 'marca',
         'fecha de devolucion': 'fechaDevolucion',
         'descripcion del problema': 'descripcion',
-        'descripcion': 'descripcion',
+        descripcion: 'descripcion',
         'accion tomada': 'accion',
-        'accion': 'accion',
+        accion: 'accion',
         'fecha que se le entrego uno nuevo': 'fechaEntrega',
         'fecha que se le entregro uno nuevo': 'fechaEntrega',
-        'fecha que se le entregó uno nuevo': 'fechaEntrega',
-        'estado': 'estado'
+        estado: 'estado'
     };
+    if (exact[h]) {
+        return exact[h];
+    }
 
-    return rows.map(row => {
-        const item = {
-            empleado: '',
-            equipo: '',
-            marca: '',
-            fechaDevolucion: '',
-            descripcion: '',
-            accion: '',
-            fechaEntrega: '',
-            estado: ''
-        };
+    if (['employee', 'staff', 'worker', 'assignee', 'owner'].includes(h)) return 'empleado';
+    if (['device', 'hardware', 'asset', 'equipment'].includes(h)) return 'equipo';
+    if (['description', 'issue', 'details', 'notes'].includes(h)) return 'descripcion';
+    if (['brand', 'vendor', 'manufacturer'].includes(h)) return 'marca';
+    if (['action', 'solution', 'fix'].includes(h)) return 'accion';
+    if (['status', 'state'].includes(h)) return 'estado';
 
-        Object.keys(row).forEach(key => {
-            const normalized = normalizeHeader(key);
-            const target = fieldMap[normalized];
-            if (target) {
-                const rawValue = row[key];
-                if ((target === 'fechaDevolucion' || target === 'fechaEntrega') && typeof rawValue === 'number' && Number.isFinite(rawValue)) {
-                    const excelEpoch = new Date(1899, 11, 30);
-                    const dt = new Date(excelEpoch.getTime() + rawValue * 86400000);
-                    item[target] = formatDateEs(dt);
-                } else {
-                    item[target] = rawValue instanceof Date ? formatDateEs(rawValue) : String(rawValue || '').trim();
-                }
-            }
+    if (/fecha/.test(h) && /(devol|devolucion|return|fallo|incidencia|reporte|recepcion|reclamacion|failure)/.test(h)) {
+        return 'fechaDevolucion';
+    }
+    if (/fecha/.test(h) && /(entreg|nuevo|reemplazo|reposicion|replacement|delivery)/.test(h)) {
+        return 'fechaEntrega';
+    }
+    if (/\bfecha\b/.test(h) && !/(entreg|nuevo|reemplazo|reposicion|replacement|delivery)/.test(h)) {
+        return 'fechaDevolucion';
+    }
+
+    if (/^(estado|status|situacion)$/.test(h) || h.startsWith('estado ')) return 'estado';
+    if (/^(marca|fabricante|vendor)$/.test(h) || /^marca\s/.test(h)) return 'marca';
+    if ((/accion|solucion|medida|correctivo|tratamiento|remedy|workaround/.test(h)) && !/descripcion/.test(h)) {
+        return 'accion';
+    }
+    if (/descripcion|problema|incidencia|detalle|motivo|comentario|observacio|falla|diagnostico|denuncia|tipo\s+de\s+fal|symptom|sintoma|causa|asunto/.test(h)) {
+        return 'descripcion';
+    }
+
+    if (h.includes('maquina') || h.includes('máquina')) {
+        return 'equipo';
+    }
+
+    if (h.includes('equipo') || ['dispositivo', 'hardware', 'activo', 'producto', 'modelo', 'tipo', 'activo fijo'].includes(h)) {
+        if (/problema|descripcion|incidencia|falla|detalle/.test(h)) return null;
+        return 'equipo';
+    }
+
+    if (/empleado|trabajador|colaborador|responsable|^usuario$|^nombre$|^nombre\s+completo$|persona|assigned|asignad|propietario|titular|solicitante|contacto/.test(h)) {
+        return 'empleado';
+    }
+
+    return null;
+}
+
+function parseMatrixToFullSheetData(aoa, headerIdx) {
+    if (!aoa || headerIdx >= aoa.length) {
+        return null;
+    }
+    const rawHeaders = (aoa[headerIdx] || []).map(c => String(c == null ? '' : c).trim());
+    let width = Math.max(rawHeaders.length, 1);
+    for (let rr = headerIdx + 1; rr < aoa.length; rr++) {
+        width = Math.max(width, (aoa[rr] || []).length);
+    }
+    const padded = [];
+    for (let i = 0; i < width; i++) {
+        padded.push(rawHeaders[i] != null && rawHeaders[i] !== '' ? rawHeaders[i] : '');
+    }
+    const displayHeaders = padded.map((h, i) => h || `Columna ${i + 1}`);
+    const columns = makeUniqueColumnKeys(displayHeaders);
+
+    const fieldMap = {};
+    padded.forEach((raw, i) => {
+        const internal = resolveInventoryFieldFromHeader(raw || `Columna ${i + 1}`);
+        if (internal && fieldMap[internal] == null) {
+            fieldMap[internal] = columns[i];
+        }
+    });
+
+    const rows = [];
+    for (let ri = headerIdx + 1; ri < aoa.length; ri++) {
+        const line = aoa[ri] || [];
+        const obj = {};
+        let any = false;
+        columns.forEach((colKey, i) => {
+            const raw = line[i];
+            const val = stringifyImportedCell(raw, colKey, fieldMap);
+            obj[colKey] = val;
+            if (val !== '') any = true;
         });
+        if (any && isDynamicRowFilled(obj)) {
+            rows.push(obj);
+        }
+    }
 
-        return item;
-    }).filter(item => Object.values(item).some(value => value !== ''));
+    if (!rows.length) {
+        return null;
+    }
+
+    const headerLabels = {};
+    padded.forEach((raw, i) => {
+        const internal = resolveInventoryFieldFromHeader(raw || `Columna ${i + 1}`);
+        if (internal && raw && headerLabels[internal] == null) {
+            headerLabels[internal] = raw;
+        }
+    });
+
+    const fieldCount = columns.length;
+    return { rows, fieldCount, headerLabels, columns, fieldMap };
+}
+
+function tryParseInventoryFromSheet(sheet) {
+    const emptySd = blankSheetBundle();
+    if (!sheet || !sheet['!ref']) {
+        return { sheetData: emptySd, headerLabels: {} };
+    }
+    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
+    if (!aoa || !aoa.length) {
+        return { sheetData: emptySd, headerLabels: {} };
+    }
+
+    let best = null;
+    let bestLabels = {};
+    let bestKey = -1;
+    const maxProbe = Math.min(25, aoa.length);
+    for (let hi = 0; hi < maxProbe; hi++) {
+        const parsed = parseMatrixToFullSheetData(aoa, hi);
+        if (!parsed || !parsed.rows.length) continue;
+        const key = parsed.fieldCount * 100000 + parsed.rows.length;
+        if (key > bestKey) {
+            bestKey = key;
+            best = {
+                columns: parsed.columns,
+                rows: parsed.rows,
+                fieldMap: Object.assign(defaultInventoryFieldMap(), parsed.fieldMap)
+            };
+            bestLabels = parsed.headerLabels || {};
+        }
+    }
+    if (!best) {
+        return { sheetData: emptySd, headerLabels: {} };
+    }
+    return { sheetData: best, headerLabels: bestLabels };
+}
+
+function parseInventoryFromWorkbook(workbook) {
+    const inventoryBySheet = {};
+    const sheetsUsed = [];
+    const mergedFieldLabels = {};
+
+    (workbook.SheetNames || []).forEach(name => {
+        const sheet = workbook.Sheets[name];
+        const { sheetData, headerLabels } = tryParseInventoryFromSheet(sheet);
+        const filled = (sheetData.rows || []).filter(isDynamicRowFilled);
+        if (filled.length) {
+            inventoryBySheet[name] = {
+                columns: sheetData.columns,
+                rows: filled,
+                fieldMap: sheetData.fieldMap || defaultInventoryFieldMap()
+            };
+            sheetsUsed.push({ name, rows: filled.length });
+            Object.keys(headerLabels || {}).forEach(field => {
+                if (mergedFieldLabels[field] == null && headerLabels[field]) {
+                    mergedFieldLabels[field] = headerLabels[field];
+                }
+            });
+        }
+    });
+
+    const totalRows = Object.values(inventoryBySheet).reduce((acc, bundle) => acc + (bundle.rows || []).length, 0);
+    return {
+        inventoryBySheet,
+        importMeta: { sheets: sheetsUsed, totalRows },
+        fieldLabels: mergedFieldLabels
+    };
 }
 
 function loadInventoryFromExcel(event) {
@@ -1118,60 +1902,41 @@ function loadInventoryFromExcel(event) {
     reader.onload = function(e) {
         try {
             const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, { type: 'array' });
-            const inventory = parseInventoryFromWorkbook(workbook);
-            if (!inventory.length) {
-                alert('No se encontraron registros válidos en el Excel.');
+            const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+            const { inventoryBySheet, importMeta, fieldLabels } = parseInventoryFromWorkbook(workbook);
+            if (!importMeta.totalRows) {
+                alert('No se reconocieron datos de inventario. Incluye al menos dos columnas con encabezados claros (por ejemplo Empleado, Equipo o Descripción / Problema) en alguna fila de la primera zona de la hoja.');
                 return;
             }
             if (!window.APP_MODEL) {
                 window.APP_MODEL = {};
             }
-            window.APP_MODEL.inventory = inventory;
+            window.APP_MODEL.inventoryBySheet = inventoryBySheet;
+            const sheetKeys = Object.keys(inventoryBySheet);
+            window.APP_MODEL.activeInventorySheet = sheetKeys[0] || 'Principal';
+            selectedAnalysisSheet = sheetKeys.length === 1 ? sheetKeys[0] : 'all';
+            delete window.APP_MODEL.inventory;
+            window.APP_MODEL.excelFieldLabels = Object.assign({}, getDefaultExcelFieldLabels(), fieldLabels || {});
             saveInventoryToStorage();
-            
-            // Actualizar todos los paneles en orden correcto
+
             renderInventory();
             renderMetrics();
             renderAnalysis();
             renderAlerts();
             renderReportes();
-            
-            alert('Excel cargado exitosamente. Sistema actualizado.');
+
+            const sheetSummary = importMeta.sheets.map(s => `${s.name}: ${s.rows}`).join(' · ');
+            alert(`Archivo integrado: ${importMeta.totalRows} fila(s) en ${importMeta.sheets.length} hoja(s). Se guardaron todas las columnas tal como vienen en el Excel.\n${sheetSummary}`);
         } catch (error) {
             console.error(error);
-            alert('Error al cargar el archivo Excel.');
+            alert('Error al cargar el archivo. Comprueba que sea un Excel o CSV válido.');
         }
     };
     reader.readAsArrayBuffer(file);
     event.target.value = '';
 }
 
-function exportInventoryExcel() {
-    commitActiveEdit();
-    saveInventoryToStorage();
-    const inventory = (window.APP_MODEL.inventory || []).filter(isInventoryRowFilled);
-    
-    // Crear libro de trabajo con ExcelJS
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Inventario');
-    
-    // Definir encabezados
-    const headers = [
-        'Empleado',
-        'Equipo',
-        'Marca',
-        'Fecha de devolución',
-        'Descripción del problema',
-        'Acción tomada',
-        'Fecha que se le entregó uno nuevo',
-        'Estado'
-    ];
-    
-    // Agregar encabezados
-    const headerRow = worksheet.addRow(headers);
-    
-    // Estilo para los encabezados
+function applyExcelHeaderStyle(headerRow) {
     headerRow.eachCell((cell) => {
         cell.fill = {
             type: 'pattern',
@@ -1190,21 +1955,93 @@ function exportInventoryExcel() {
             right: { style: 'thin', color: { argb: 'FF000000' } }
         };
     });
-    
-    // Agregar datos
-    inventory.forEach(item => {
-        const row = worksheet.addRow([
+}
+
+function sanitizeExcelWorksheetName(name) {
+    const s = String(name || 'Hoja').replace(/[:\\/?*[\]]/g, '_').trim().substring(0, 31);
+    return s || 'Hoja';
+}
+
+function uniqueExcelWorksheetName(base, usedSet) {
+    let n = sanitizeExcelWorksheetName(base);
+    let nTry = n;
+    let i = 2;
+    while (usedSet.has(nTry)) {
+        const suffix = `(${i})`;
+        const maxBase = Math.max(1, 31 - suffix.length);
+        nTry = (n.substring(0, maxBase) + suffix).substring(0, 31);
+        i += 1;
+    }
+    usedSet.add(nTry);
+    return nTry;
+}
+
+function exportInventoryExcel() {
+    commitActiveEdit();
+    saveInventoryToStorage();
+    ensureInventoryBySheetModel();
+    const bySheet = window.APP_MODEL.inventoryBySheet || {};
+
+    const workbook = new ExcelJS.Workbook();
+    const usedNames = new Set();
+
+    Object.keys(bySheet).forEach(sheetKey => {
+        const bundle = getSheetBundle(sheetKey);
+        const wsName = uniqueExcelWorksheetName(sheetKey, usedNames);
+        const worksheet = workbook.addWorksheet(wsName);
+
+        const headerRow = worksheet.addRow(bundle.columns);
+        applyExcelHeaderStyle(headerRow);
+
+        (bundle.rows || []).filter(isDynamicRowFilled).forEach(item => {
+            const values = bundle.columns.map(colKey => {
+                const int = internalFieldForColumnKey(colKey, bundle.fieldMap);
+                const raw = item[colKey] != null ? item[colKey] : '';
+                if (int === 'fechaDevolucion' || int === 'fechaEntrega' || isDateLikeColumnKey(colKey)) {
+                    const d = parseDate(String(raw));
+                    return d || '';
+                }
+                return raw;
+            });
+            const row = worksheet.addRow(values);
+
+            row.eachCell((cell, colNumber) => {
+                cell.border = {
+                    top: { style: 'thin', color: { argb: 'FF000000' } },
+                    left: { style: 'thin', color: { argb: 'FF000000' } },
+                    bottom: { style: 'thin', color: { argb: 'FF000000' } },
+                    right: { style: 'thin', color: { argb: 'FF000000' } }
+                };
+                cell.alignment = { horizontal: 'left', vertical: 'center', wrapText: true };
+
+                const ck = bundle.columns[colNumber - 1];
+                const int = internalFieldForColumnKey(ck, bundle.fieldMap);
+                if ((int === 'fechaDevolucion' || int === 'fechaEntrega' || isDateLikeColumnKey(ck)) && cell.value) {
+                    cell.numFmt = 'dd/mm/yyyy';
+                }
+            });
+        });
+
+        worksheet.columns = bundle.columns.map(() => ({ width: 20 }));
+    });
+
+    generateReportesFromInventory();
+    const reportes = (window.APP_MODEL && window.APP_MODEL.reportes) ? window.APP_MODEL.reportes : [];
+    const reportesWsName = uniqueExcelWorksheetName('Reportes', usedNames);
+    const wsReportes = workbook.addWorksheet(reportesWsName);
+    const Lrep = getReportTableLabels();
+    const reportesHeaders = [Lrep.empleado, Lrep.equipo, Lrep.descripcion, Lrep.fecha];
+    const reportesHeaderRow = wsReportes.addRow(reportesHeaders);
+    applyExcelHeaderStyle(reportesHeaderRow);
+
+    reportes.forEach(item => {
+        const fechaVal = item.fecha instanceof Date ? item.fecha : null;
+        const row = wsReportes.addRow([
             item.empleado,
-            item.equipo,
-            item.marca,
-            parseDate(item.fechaDevolucion) || '',
-            item.descripcion,
-            item.accion,
-            parseDate(item.fechaEntrega) || '',
-            item.estado
+            item.producto,
+            item.problema,
+            fechaVal
         ]);
-        
-        // Aplicar bordes a todas las celdas de datos
         row.eachCell((cell, colNumber) => {
             cell.border = {
                 top: { style: 'thin', color: { argb: 'FF000000' } },
@@ -1213,30 +2050,97 @@ function exportInventoryExcel() {
                 right: { style: 'thin', color: { argb: 'FF000000' } }
             };
             cell.alignment = { horizontal: 'left', vertical: 'center', wrapText: true };
-            
-            // Formato de fecha para columnas 4 y 7 (índice 3 y 6)
-            if ((colNumber === 4 || colNumber === 7) && cell.value) {
+            if (colNumber === 4 && cell.value instanceof Date) {
                 cell.numFmt = 'dd/mm/yyyy';
             }
         });
     });
-    
-    // Ajustar ancho de columnas
-    worksheet.columns = [
-        { width: 20 },
-        { width: 25 },
-        { width: 15 },
-        { width: 18 },
-        { width: 25 },
-        { width: 25 },
-        { width: 18 },
-        { width: 15 }
+
+    wsReportes.columns = [
+        { width: 22 },
+        { width: 28 },
+        { width: 45 },
+        { width: 14 }
     ];
     
     // Guardar archivo
     workbook.xlsx.writeBuffer().then(buffer => {
-        saveAs(new Blob([buffer]), 'reporte_cargadores_modificado.xlsx');
+        saveAs(new Blob([buffer]), 'reportes.xlsx');
     });
+}
+
+function renameActiveInventorySheet() {
+    commitActiveEdit();
+    ensureInventoryBySheetModel();
+    const currentKey = getActiveInventorySheetKey();
+    if (!currentKey) return;
+
+    const newName = prompt('Nuevo nombre de la hoja:', currentKey);
+    if (newName === null) return;
+
+    const sanitized = sanitizeExcelWorksheetName(String(newName).trim());
+    if (!sanitized) {
+        alert('El nombre de hoja no puede estar vacío ni contener caracteres inválidos.');
+        return;
+    }
+
+    if (sanitized === currentKey) return;
+    const sheets = window.APP_MODEL.inventoryBySheet || {};
+    if (sheets[sanitized]) {
+        alert('Ya existe una hoja con ese nombre. Usa otro nombre.');
+        return;
+    }
+
+    sheets[sanitized] = sheets[currentKey];
+    delete sheets[currentKey];
+    window.APP_MODEL.activeInventorySheet = sanitized;
+    if (selectedAnalysisSheet === currentKey) {
+        selectedAnalysisSheet = sanitized;
+    }
+
+    saveInventoryToStorage();
+    renderInventory();
+    renderAnalysis();
+    renderAlerts();
+    renderReportes();
+}
+
+function deleteActiveInventorySheet() {
+    commitActiveEdit();
+    ensureInventoryBySheetModel();
+    const currentKey = getActiveInventorySheetKey();
+    const sheets = window.APP_MODEL.inventoryBySheet || {};
+    if (!currentKey || !sheets[currentKey]) return;
+
+    if (Object.keys(sheets).length <= 1) {
+        if (!confirm('Sólo queda una hoja. ¿Deseas vaciar su contenido en lugar de eliminarla?')) {
+            return;
+        }
+        sheets[currentKey] = blankSheetBundle();
+        saveInventoryToStorage();
+        renderInventory();
+        renderAnalysis();
+        renderAlerts();
+        renderReportes();
+        return;
+    }
+
+    if (!confirm(`Eliminar la hoja «${currentKey}» y todo su contenido?`)) {
+        return;
+    }
+
+    delete sheets[currentKey];
+    const remainingKeys = Object.keys(sheets);
+    window.APP_MODEL.activeInventorySheet = remainingKeys[0] || null;
+    if (selectedAnalysisSheet === currentKey) {
+        selectedAnalysisSheet = 'all';
+    }
+
+    saveInventoryToStorage();
+    renderInventory();
+    renderAnalysis();
+    renderAlerts();
+    renderReportes();
 }
 
 function scrollInventoryDown() {
@@ -1269,13 +2173,53 @@ function scrollAlertsUp() {
     container.scrollBy({ top: -300, behavior: 'smooth' });
 }
 
+function escapeHtml(text) {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function columnUsesDateInput(colKey, fieldMap) {
+    const int = internalFieldForColumnKey(colKey, fieldMap);
+    if (int === 'fechaDevolucion' || int === 'fechaEntrega') {
+        return true;
+    }
+    return isDateLikeColumnKey(colKey);
+}
+
 function renderInventory() {
     const container = document.querySelector('#inventory-panel .tabla-body');
+    const tabsEl = document.getElementById('inventory-sheet-tabs');
     if (!container || !window.APP_MODEL) return;
 
-    const inventory = window.APP_MODEL.inventory || [];
+    ensureInventoryBySheetModel();
+    const bySheet = window.APP_MODEL.inventoryBySheet;
+    const active = getActiveInventorySheetKey();
+    const bundle = getActiveSheetBundle();
+    const columns = bundle.columns;
+    const fieldMap = bundle.fieldMap;
+    const inventory = bundle.rows;
+
+    if (tabsEl) {
+        tabsEl.innerHTML = '';
+        const keys = Object.keys(bySheet);
+        keys.forEach(name => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'sheet-tab' + (name === active ? ' active' : '');
+            btn.textContent = name;
+            btn.title = 'Ver datos de la hoja «' + name + '»';
+            btn.addEventListener('click', () => setActiveInventorySheet(name));
+            tabsEl.appendChild(btn);
+        });
+        tabsEl.style.display = keys.length ? 'flex' : 'none';
+    }
+
     if (inventory.length === 0) {
-        container.innerHTML = '<p>No hay datos disponibles.</p>';
+        const safeSheet = String(active).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        container.innerHTML = '<p class="inventory-empty-msg">No hay filas en la hoja «' + safeSheet + '». Cambia de pestaña, pulsa «+ Nueva hoja» o «Añadir registro».</p>';
         renderMetrics();
         renderAnalysis();
         renderAlerts();
@@ -1283,40 +2227,23 @@ function renderInventory() {
         return;
     }
 
-    const headers = [
-        'Empleado',
-        'Equipo',
-        'Marca',
-        'Fecha de devolución',
-        'Descripción del problema',
-        'Acción tomada',
-        'Fecha que se le entregó uno nuevo',
-        'Estado',
-        'Eliminar'
-    ];
+    const headerCells = columns.map(h => `<th>${escapeHtml(h)}</th>`).join('') + '<th>Eliminar</th>';
 
-    const rows = inventory.map((item, index) => `
-        <tr>
-            <td contenteditable="true" data-index="${index}" data-field="empleado">${item.empleado}</td>
-            <td contenteditable="true" data-index="${index}" data-field="equipo">${item.equipo}</td>
-            <td contenteditable="true" data-index="${index}" data-field="marca">${item.marca}</td>
-            <td>
-                <input type="date" data-index="${index}" data-field="fechaDevolucion" value="${formatDateForInput(item.fechaDevolucion)}">
-            </td>
-            <td contenteditable="true" data-index="${index}" data-field="descripcion">${item.descripcion}</td>
-            <td contenteditable="true" data-index="${index}" data-field="accion">${item.accion}</td>
-            <td>
-                <input type="date" data-index="${index}" data-field="fechaEntrega" value="${formatDateForInput(item.fechaEntrega)}">
-            </td>
-            <td contenteditable="true" data-index="${index}" data-field="estado">${item.estado}</td>
-            <td><button class="delete-row" onclick="deleteInventoryRow(${index})">✕</button></td>
-        </tr>
-    `).join('');
+    const rows = inventory.map((item, index) => {
+        const cells = columns.map((colKey, ci) => {
+            const val = item[colKey] != null ? String(item[colKey]) : '';
+            if (columnUsesDateInput(colKey, fieldMap)) {
+                return `<td><input type="date" data-index="${index}" data-col-i="${ci}" value="${formatDateForInput(val)}"></td>`;
+            }
+            return `<td contenteditable="true" data-index="${index}" data-col-i="${ci}">${escapeHtml(val)}</td>`;
+        }).join('');
+        return `<tr>${cells}<td><button class="delete-row" onclick="deleteInventoryRow(${index})">✕</button></td></tr>`;
+    }).join('');
 
     container.innerHTML = `
         <table class="inventory-table">
             <thead>
-                <tr>${headers.map(header => `<th>${header}</th>`).join('')}</tr>
+                <tr>${headerCells}</tr>
             </thead>
             <tbody>${rows}</tbody>
         </table>
@@ -1326,9 +2253,9 @@ function renderInventory() {
     editableCells.forEach(cell => {
         const saveCell = () => {
             const index = parseInt(cell.dataset.index, 10);
-            const field = cell.dataset.field;
+            const colI = parseInt(cell.dataset.colI, 10);
             const value = cell.innerText.trim();
-            updateInventoryItem(index, field, value);
+            updateInventoryItem(index, colI, value);
         };
 
         cell.addEventListener('blur', saveCell);
@@ -1339,9 +2266,9 @@ function renderInventory() {
     dateInputs.forEach(input => {
         const saveInput = () => {
             const index = parseInt(input.dataset.index, 10);
-            const field = input.dataset.field;
+            const colI = parseInt(input.dataset.colI, 10);
             const value = input.value ? formatDateEs(parseDate(input.value)) : '';
-            updateInventoryItem(index, field, value);
+            updateInventoryItem(index, colI, value);
         };
 
         input.addEventListener('change', saveInput);

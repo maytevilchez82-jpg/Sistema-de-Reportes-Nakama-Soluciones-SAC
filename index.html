@@ -16,6 +16,7 @@
     </div>
 
     <div class="right">
+        
         <div class="login-box">
             <h2>INICIAR SESIÓN</h2>
 
@@ -50,7 +51,7 @@
             <a class="active" id="nav-inventory" onclick="showPanel('inventory')"> &#128230; Inventario</a>
             <a id="nav-analysis" onclick="showPanel('analysis')"> &#128202; Análisis Predictivo</a>
             <a class="alerta" id="nav-alerts" onclick="showPanel('alerts')"> Alertas</a>
-            <a class="reporte" id="nav-reportes" onclick="showPanel('reportes')"> &#128200; Reportes</a>
+            <a class="reporte" id="nav-reportes" onclick="showPanel('reportes')"> &#128200; Reporte </a>
         </nav>
 
         <button class="cerrar" onclick="logout()">Cerrar Sesión</button>
@@ -65,8 +66,7 @@
                 <button class="excel-action" onclick="exportInventoryExcel()">Exportar Excel</button>
                 <button class="import-action" onclick="document.getElementById('excel-file-input').click()">Cargar Excel</button>
                 <button class="add-action" onclick="addInventoryRow()">Añadir registro</button>
-                <span class="excel-help">Edita cualquier celda y luego exporta el archivo sin subir nada.</span>
-                <input id="excel-file-input" type="file" accept=".xlsx,.xls" onchange="loadInventoryFromExcel(event)" style="display:none">
+                <input id="excel-file-input" type="file" accept=".xlsx,.xls,.xlsm,.xlsb,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onchange="loadInventoryFromExcel(event)" style="display:none">
             </div>
 
             <div class="cards">
@@ -88,6 +88,14 @@
 
             <div class="tabla">
                 <div class="tabla-header">EQUIPOS REGISTRADOS</div>
+                <div class="inventory-sheets-panel">
+                    <div class="sheets-panel-head">
+                        <button type="button" class="sheet-new-btn sheet-left" onclick="addInventorySheetTab()">+ Nueva hoja</button>
+                        <button type="button" class="sheet-action-btn sheet-center" onclick="renameActiveInventorySheet()">Editar nombre</button>
+                        <button type="button" class="sheet-action-btn delete sheet-right" onclick="deleteActiveInventorySheet()">Eliminar hoja</button>
+                    </div>
+                    <div id="inventory-sheet-tabs" class="inventory-sheet-tabs" aria-label="Hojas del inventario"></div>
+                </div>
                 <div class="tabla-body"></div>
             </div>
         </div>
@@ -95,7 +103,15 @@
         <div id="analysis-panel" class="hidden">
             <h3>Análisis Predictivo con IA</h3>
             <div class="separator"></div>
-            <p class="subtitle">Proyección de fallos en Equipos</p>
+            <div class="analysis-controls">
+                <p class="subtitle">Proyección de fallos en Equipos</p>
+                <div class="analysis-filter-row">
+                    <label for="analysis-sheet-filter">Filtro de hoja:</label>
+                    <select id="analysis-sheet-filter" class="filter-badge" onchange="setAnalysisSheetFilter(this.value)">
+                        <option value="all">Todas las hojas</option>
+                    </select>
+                </div>
+            </div>
             <div class="ia-note">IA predictiva analizando fallos recurrentes, estados y antigüedad para anticipar riesgos.</div>
 
             <div class="analysis-scroll-container">
@@ -177,38 +193,42 @@
 
         <div id="reportes-panel" class="hidden">
             <div class="report-top">
-                <h3>Reportes</h3>
-                <select id="month-filter" class="filter-badge" onchange="filterReportesByMonth(this.value)">
-                    <option value="">Todos los meses</option>
-                    <option value="1">Enero</option>
-                    <option value="2">Febrero</option>
-                    <option value="3">Marzo</option>
-                    <option value="4">Abril</option>
-                    <option value="5">Mayo</option>
-                    <option value="6">Junio</option>
-                    <option value="7">Julio</option>
-                    <option value="8">Agosto</option>
-                    <option value="9">Septiembre</option>
-                    <option value="10">Octubre</option>
-                    <option value="11">Noviembre</option>
-                    <option value="12">Diciembre</option>
-                </select>
+                <h3>Reporte</h3>
+                <div class="report-filters">
+                    <select id="month-filter" class="filter-badge" onchange="filterReportesByMonth(this.value)">
+                        <option value="">Todos los meses</option>
+                        <option value="1">Enero</option>
+                        <option value="2">Febrero</option>
+                        <option value="3">Marzo</option>
+                        <option value="4">Abril</option>
+                        <option value="5">Mayo</option>
+                        <option value="6">Junio</option>
+                        <option value="7">Julio</option>
+                        <option value="8">Agosto</option>
+                        <option value="9">Septiembre</option>
+                        <option value="10">Octubre</option>
+                        <option value="11">Noviembre</option>
+                        <option value="12">Diciembre</option>
+                    </select>
+                    <select id="employee-filter" class="filter-badge" onchange="filterReportesByEmployee(this.value)">
+                        <option value="">Todos los empleados</option>
+                    </select>
+                    <select id="product-filter" class="filter-badge" onchange="filterReportesByProduct(this.value)">
+                        <option value="">Todos los equipos</option>
+                    </select>
+                </div>
             </div>
             <div class="report-card card">
                 <div class="report-chart">
                     <canvas id="report-chart"></canvas>
                 </div>
             </div>
-            <p class="subtitle">Problemas de los productos desechados</p>
+            <p id="reportes-subtitle" class="subtitle">Los títulos de columna coinciden con el formato del Excel cargado.</p>
             <div class="tabla report-table">
-                <div class="tabla-body">
-                    <table>
+                <div class="tabla-body report-table-scroll">
+                    <table id="reportes-main-table" class="reportes-data-grid">
                         <thead>
-                            <tr>
-                                <th>EMPLEADO</th>
-                                <th>PRODUCTO</th>
-                                <th>PROBLEMA</th>
-                            </tr>
+                            <tr></tr>
                         </thead>
                         <tbody></tbody>
                     </table>
