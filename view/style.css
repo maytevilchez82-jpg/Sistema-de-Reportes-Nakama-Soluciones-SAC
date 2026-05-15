@@ -921,39 +921,68 @@ button:hover{
         -ms-text-size-adjust: 100%;
     }
 
-    /* Forzamos un ancho mínimo para que la estructura no colapse */
-    .container, .main, .report-card, .tabla {
-        min-width: 1000px;
-        max-width: none;
+    /* Hacemos la barra lateral fija y el contenido principal desplazable
+       Esto evita que la UI principal reordene elementos y mantiene botones
+       y controles en su lugar mientras la página se adapta a móviles. */
+    .sidebar{
+        position:fixed;
+        left:0;
+        top:0;
+        height:100vh;
+        width:220px;
+        padding-top:20px;
+        z-index:30;
+        overflow:auto;
     }
 
-    /* Convertimos contenedores a scroll horizontal en lugar de wrap */
-    .tabla-body, .report-card .report-chart, .report-filters, .inventory-sheet-tabs {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        white-space: nowrap;
+    .main{
+        margin-left:220px;
+        padding:18px;
     }
 
-    .report-filters {
-        flex-wrap: nowrap;
-        gap: 12px;
+    /* Mantener el logo visible y fijo dentro de la sidebar */
+    .sidebar-brand{ position:sticky; top:20px; z-index:31; }
+    .sidebar-brand img{ width:160px; height:120px; }
+
+    /* Botones y enlaces en la sidebar: tamaño fijo y sin wrap */
+    .sidebar nav a{
+        display:flex;
+        align-items:center;
+        gap:12px;
+        width:180px;
+        white-space:nowrap;
+        overflow:hidden;
+        text-overflow:ellipsis;
     }
 
-    /* Evitar que los filtros se rompan en varias líneas */
-    .filter-badge, .report-product-btn, .sheet-tab, .sheet-new-btn, .sheet-action-btn {
-        display: inline-block;
-        white-space: nowrap;
-        min-width: 220px;
-        flex: 0 0 auto;
-        margin-right: 8px;
+    /* Filtros y controles: no hacen wrap, mantienen tamaño táctil y permiten scroll horizontal */
+    .report-filters{
+        display:flex;
+        gap:10px;
+        flex-wrap:nowrap;
+        overflow-x:auto;
+        -webkit-overflow-scrolling:touch;
     }
 
-    /* Hacer que las pestañas se muestren en línea y puedan scrollear */
-    .inventory-sheet-tabs { display: block; }
-    .inventory-sheet-tabs .sheet-tab { display: inline-block; margin-right:6px; }
+    .filter-badge, .report-product-btn, .sheet-tab, .sheet-new-btn, .sheet-action-btn{
+        min-width:140px;
+        display:inline-block;
+        white-space:nowrap;
+        flex:0 0 auto;
+        margin-right:8px;
+        -webkit-transform:translateZ(0);
+        transform:translateZ(0);
+    }
+
+    /* Tablas y áreas anchas usan scroll horizontal sin reflow */
+    .tabla-body, .report-card .report-chart, .inventory-sheet-tabs{
+        overflow-x:auto;
+        white-space:nowrap;
+        -webkit-overflow-scrolling:touch;
+    }
 
     /* Mejor experiencia táctil */
-    body { touch-action: pan-x pan-y; }
+    body{ touch-action: pan-x pan-y; }
 }
 
 .report-chart{
