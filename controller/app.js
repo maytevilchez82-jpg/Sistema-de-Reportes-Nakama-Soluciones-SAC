@@ -292,6 +292,19 @@ function pickReporteProductoText(row, canon) {
     return 'Desconocido';
 }
 
+function getProductCategory(producto) {
+    const normalized = String(producto || '').toLowerCase();
+    if (/impresor|printer/.test(normalized)) return 'Impresoras';
+    if (/cargador|charger/.test(normalized)) return 'Cargadores';
+    if (/proyector|projector/.test(normalized)) return 'Proyectores';
+    if (/laptop|notebook|portátil|portatil|pc|computadora|ordenador/.test(normalized)) return 'Computadoras';
+    if (/monitor|pantalla/.test(normalized)) return 'Monitores';
+    if (/mouse|teclado|keyboard|ratón|raton/.test(normalized)) return 'Periféricos';
+    if (/router|switch|servidor|modem|módem|hub/.test(normalized)) return 'Red';
+    if (/celular|móvil|movil|teléfono|telefono/.test(normalized)) return 'Celulares';
+    return 'Otros equipos';
+}
+
 function pickReporteEmpleadoText(row, canon) {
     if (canon.empleado && String(canon.empleado).trim()) {
         return String(canon.empleado).trim();
@@ -338,9 +351,11 @@ function generateReportesFromInventory() {
                 return;
             }
             const date = parseDate(canon.fechaDevolucion) || parseDate(canon.fechaEntrega) || new Date();
+            const producto = pickReporteProductoText(row, canon);
             reportes.push({
                 empleado: pickReporteEmpleadoText(row, canon),
-                producto: pickReporteProductoText(row, canon),
+                producto,
+                productoCategoria: getProductCategory(producto),
                 problema,
                 mes: date.getMonth() + 1,
                 año: date.getFullYear(),
@@ -368,7 +383,12 @@ function getFilteredReportes() {
         filtered = filtered.filter(item => String(item.empleado || '').trim() === String(selectedReportEmployee).trim());
     }
     if (selectedReportProduct) {
-        filtered = filtered.filter(item => String(item.producto || '').trim() === String(selectedReportProduct).trim());
+        filtered = filtered.filter(item => {
+            const productValue = String(item.producto || '').trim();
+            const categoryValue = String(item.productoCategoria || '').trim();
+            const selectedValue = String(selectedReportProduct).trim();
+            return productValue === selectedValue || categoryValue === selectedValue;
+        });
     }
     
     filtered.sort((a, b) => {
@@ -732,16 +752,19 @@ function renderReportProductFilterOptions() {
     if (!select) return;
 
     const reports = getFilteredReportesForFilter('producto');
+    const categories = Array.from(new Set(reports.map(item => String(item.productoCategoria || getProductCategory(item.producto)).trim()).filter(Boolean)));
     const products = Array.from(new Set(reports.map(item => String(item.producto || '').trim()).filter(Boolean)));
-    if (selectedReportProduct && selectedReportProduct.trim() && !products.includes(selectedReportProduct.trim())) {
-        products.unshift(selectedReportProduct.trim());
+
+    const values = Array.from(new Set([...categories, ...products]));
+    if (selectedReportProduct && selectedReportProduct.trim() && !values.includes(selectedReportProduct.trim())) {
+        values.unshift(selectedReportProduct.trim());
     }
-    products.sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+    values.sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
     const options = ['<option value="">Todos los equipos</option>'];
-    products.forEach(product => {
-        const safe = String(product).replace(/"/g, '&quot;');
-        options.push(`<option value="${safe}">${escapeHtml(product)}</option>`);
+    values.forEach(value => {
+        const safe = String(value).replace(/"/g, '&quot;');
+        options.push(`<option value="${safe}">${escapeHtml(value)}</option>`);
     });
 
     select.innerHTML = options.join('');
