@@ -209,6 +209,8 @@ button:hover{
 
 .main{
     flex:1;
+    min-width:0;
+    max-width:100%;
     padding:18px;
     animation:fadeIn 0.8s ease;
 }
@@ -540,6 +542,133 @@ button:hover{
 
 #inventory-panel{
     position:relative;
+    min-width:0;
+    max-width:100%;
+    width:100%;
+}
+
+#inventory-panel .tabla{
+    max-width:100%;
+    min-width:0;
+}
+
+.inventory-sheets-panel{
+    background:#f8f9fa;
+    border-top:1px solid rgba(0,0,0,0.08);
+    padding:10px 12px 12px;
+}
+
+.sheets-panel-head{
+    display:grid;
+    grid-template-columns:auto minmax(160px, 280px) auto;
+    align-items:center;
+    gap:10px;
+    margin-bottom:12px;
+    width:100%;
+}
+
+.sheet-left{
+    justify-self:start;
+}
+
+.sheet-center{
+    justify-self:center;
+}
+
+.sheet-right{
+    justify-self:end;
+}
+
+.sheet-new-btn,
+.sheet-action-btn{
+    border:1px solid transparent;
+    background:#fff;
+    color:#0984e3;
+    padding:10px 16px;
+    border-radius:999px;
+    font-size:0.86rem;
+    font-weight:700;
+    cursor:pointer;
+    flex-shrink:0;
+    box-shadow:0 12px 24px rgba(9,132,227,0.1);
+    transition:0.2s ease, transform 0.2s ease;
+    min-width:120px;
+    text-align:center;
+}
+
+.sheet-center{
+    min-width:140px;
+}
+
+.sheet-new-btn{
+    border-color:#0984e3;
+}
+
+.sheet-action-btn{
+    border-color:#0984e3;
+}
+
+.sheet-action-btn.delete{
+    border-color:#e74c3c;
+    color:#e74c3c;
+}
+
+.sheet-new-btn:hover,
+.sheet-action-btn:hover{
+    transform:translateY(-1px);
+    background:rgba(9,132,227,0.08);
+}
+
+.sheet-action-btn.delete:hover{
+    background:rgba(231,76,60,0.08);
+}
+
+.sheet-action-btn.delete:hover{
+    background:rgba(231,76,60,0.06);
+}
+
+.inventory-sheet-tabs{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin:0;
+    padding:8px 10px;
+    background:#eef1f4;
+    border-radius:10px;
+    border:1px solid rgba(0,0,0,0.06);
+}
+
+.sheet-tab{
+    border:1px solid rgba(0,0,0,0.12);
+    background:#fff;
+    color:#2d3436;
+    padding:8px 14px;
+    border-radius:999px;
+    font-size:0.85rem;
+    font-weight:600;
+    cursor:pointer;
+    max-width:220px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    transition:background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.sheet-tab:hover{
+    background:#e9ecef;
+    border-color:rgba(0,0,0,0.18);
+}
+
+.sheet-tab.active{
+    background:#0984e3;
+    border-color:#0984e3;
+    color:#fff;
+}
+
+.inventory-empty-msg{
+    padding:16px;
+    color:#636e72;
+    font-size:0.95rem;
 }
 
 .scroll-side-action{
@@ -740,6 +869,37 @@ button:hover{
     color:black;
 }
 
+.report-filter-buttons{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    align-items:center;
+}
+
+.report-product-btn{
+    border:1px solid rgba(0,0,0,0.12);
+    background:#f0f4ff;
+    color:#2d3436;
+    padding:10px 18px;
+    border-radius:999px;
+    font-size:0.85rem;
+    font-weight:600;
+    cursor:pointer;
+    transition:background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+    white-space:nowrap;
+}
+
+.report-product-btn:hover{
+    transform:translateY(-1px);
+    background:#dfe7ff;
+}
+
+.report-product-btn.active{
+    background:#0984e3;
+    border-color:#0984e3;
+    color:white;
+}
+
 .report-card{
     padding:22px;
 }
@@ -762,6 +922,9 @@ button:hover{
     height:40%;
     background:#f9ca24;
     border-radius:8px;
+    opacity:0.16;
+    z-index:-1;
+    pointer-events:none;
 }
 
 .report-chart::after{
@@ -771,6 +934,11 @@ button:hover{
     bottom:16%;
     width:14%;
     height:34%;
+    background:#74b9ff;
+    border-radius:8px;
+    opacity:0.16;
+    z-index:-1;
+    pointer-events:none;
     background:#0984e3;
     border-radius:8px;
 }
@@ -813,6 +981,43 @@ button:hover{
 .inventory-table thead th{
     background:#0b1e6d;
     color:white;
+}
+
+/* Inventario / Excel: scroll horizontal abajo + altura según pantalla */
+#inventory-panel .tabla .tabla-body{
+    overflow-x:auto;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+    max-width:100%;
+    width:100%;
+    min-width:0;
+    max-height:clamp(240px, 52vh, 520px);
+    scrollbar-gutter:stable;
+}
+
+#inventory-panel .tabla .tabla-body::-webkit-scrollbar{
+    height:12px;
+    width:12px;
+}
+
+#inventory-panel .tabla .tabla-body::-webkit-scrollbar-track{
+    background:#eef1f4;
+    border-radius:8px;
+}
+
+#inventory-panel .tabla .tabla-body::-webkit-scrollbar-thumb{
+    background:#94a3b8;
+    border-radius:8px;
+}
+
+#inventory-panel .tabla .tabla-body::-webkit-scrollbar-thumb:hover{
+    background:#64748b;
+}
+
+#inventory-panel .inventory-table{
+    width:max-content;
+    min-width:100%;
+    max-width:none;
 }
 
 .card{
@@ -1085,6 +1290,44 @@ button:hover{
 /* Estilos para el panel de reportes */
 #reportes-panel {
     position: relative;
+}
+
+#reportes-panel .report-table-scroll{
+    overflow-x:auto;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+    max-height:420px;
+}
+
+#reportes-panel .reportes-data-grid{
+    width:100%;
+    min-width:720px;
+    border-collapse:collapse;
+    background:#fff;
+    box-shadow:0 1px 0 rgba(0,0,0,0.06);
+}
+
+#reportes-panel .reportes-data-grid th,
+#reportes-panel .reportes-data-grid td{
+    border:1px solid #dee2e6;
+    padding:12px 14px;
+    text-align:left;
+    vertical-align:top;
+    word-break:break-word;
+}
+
+#reportes-panel .reportes-data-grid thead th{
+    background:#0b1e6d;
+    color:#fff;
+    font-weight:700;
+    white-space:nowrap;
+}
+
+#reportes-panel .report-empty-row{
+    color:#636e72;
+    font-size:0.95rem;
+    text-align:center;
+    padding:24px 16px;
 }
 
 /* ================= RESPONSIVE DESIGN ================= */
