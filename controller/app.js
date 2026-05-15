@@ -362,8 +362,7 @@ function getFilteredReportes() {
     
     if (selectedMonth) {
         const monthNum = parseInt(selectedMonth, 10);
-        const currentYear = new Date().getFullYear();
-        filtered = filtered.filter(item => item.mes === monthNum && item.año === currentYear);
+        filtered = filtered.filter(item => item.mes === monthNum);
     }
     if (selectedReportEmployee) {
         filtered = filtered.filter(item => String(item.empleado || '').trim() === String(selectedReportEmployee).trim());
@@ -378,6 +377,23 @@ function getFilteredReportes() {
         return String(a.producto || '').localeCompare(String(b.producto || ''), 'es', { sensitivity: 'base' });
     });
     return filtered;
+}
+
+function getFilteredReportesForFilter(excludeField) {
+    generateReportesFromInventory();
+    return (window.APP_MODEL.reportes || []).filter(item => {
+        if (excludeField !== 'mes' && selectedMonth) {
+            const monthNum = parseInt(selectedMonth, 10);
+            if (item.mes !== monthNum) return false;
+        }
+        if (excludeField !== 'empleado' && selectedReportEmployee) {
+            if (String(item.empleado || '').trim() !== String(selectedReportEmployee).trim()) return false;
+        }
+        if (excludeField !== 'producto' && selectedReportProduct) {
+            if (String(item.producto || '').trim() !== String(selectedReportProduct).trim()) return false;
+        }
+        return true;
+    });
 }
 
 function renderReportes() {
@@ -693,8 +709,11 @@ function renderReportEmployeeFilterOptions() {
     const select = document.getElementById('employee-filter');
     if (!select) return;
 
-    generateReportesFromInventory();
-    const employees = Array.from(new Set((window.APP_MODEL.reportes || []).map(item => String(item.empleado || '').trim()).filter(Boolean)));
+    const reports = getFilteredReportesForFilter('empleado');
+    const employees = Array.from(new Set(reports.map(item => String(item.empleado || '').trim()).filter(Boolean)));
+    if (selectedReportEmployee && selectedReportEmployee.trim() && !employees.includes(selectedReportEmployee.trim())) {
+        employees.unshift(selectedReportEmployee.trim());
+    }
     employees.sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
     const options = ['<option value="">Todos los empleados</option>'];
@@ -712,8 +731,11 @@ function renderReportProductFilterOptions() {
     const select = document.getElementById('product-filter');
     if (!select) return;
 
-    generateReportesFromInventory();
-    const products = Array.from(new Set((window.APP_MODEL.reportes || []).map(item => String(item.producto || '').trim()).filter(Boolean)));
+    const reports = getFilteredReportesForFilter('producto');
+    const products = Array.from(new Set(reports.map(item => String(item.producto || '').trim()).filter(Boolean)));
+    if (selectedReportProduct && selectedReportProduct.trim() && !products.includes(selectedReportProduct.trim())) {
+        products.unshift(selectedReportProduct.trim());
+    }
     products.sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
     const options = ['<option value="">Todos los equipos</option>'];
