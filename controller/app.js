@@ -410,16 +410,45 @@ function getFilteredReportesForFilter(excludeField) {
             if (String(item.empleado || '').trim() !== String(selectedReportEmployee).trim()) return false;
         }
         if (excludeField !== 'producto' && selectedReportProduct) {
-            if (String(item.producto || '').trim() !== String(selectedReportProduct).trim()) return false;
+            const selectedValue = String(selectedReportProduct).trim();
+            const productValue = String(item.producto || '').trim();
+            const categoryValue = String(item.productoCategoria || '').trim();
+            if (productValue !== selectedValue && categoryValue !== selectedValue) return false;
         }
         return true;
     });
+}
+
+function renderReportMonthFilterOptions() {
+    if (!window.APP_MODEL) return;
+    const select = document.getElementById('month-filter');
+    if (!select) return;
+
+    const reports = getFilteredReportesForFilter('mes');
+    const monthNumbers = Array.from(new Set(reports.map(item => item.mes).filter(Boolean)));
+    monthNumbers.sort((a, b) => a - b);
+
+    const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const options = ['<option value="">Todos los meses</option>'];
+    monthNumbers.forEach(monthNum => {
+        if (monthNum >= 1 && monthNum <= 12) {
+            const safe = String(monthNum);
+            options.push(`<option value="${safe}">${monthNames[monthNum - 1] || safe}</option>`);
+        }
+    });
+
+    if (selectedMonth && !monthNumbers.includes(parseInt(selectedMonth, 10))) {
+        selectedMonth = '';
+    }
+    select.innerHTML = options.join('');
+    select.value = selectedMonth || '';
 }
 
 function renderReportes() {
     generateReportesFromInventory();
     applyReportTableHeaderRow();
     updateReportesSubtitle();
+    renderReportMonthFilterOptions();
     renderReportEmployeeFilterOptions();
     renderReportProductFilterOptions();
     const tbody = document.querySelector('#reportes-panel .report-table tbody');
@@ -752,10 +781,10 @@ function renderReportProductFilterOptions() {
     if (!select) return;
 
     const reports = getFilteredReportesForFilter('producto');
-    const categories = Array.from(new Set(reports.map(item => String(item.productoCategoria || getProductCategory(item.producto)).trim()).filter(Boolean)));
-    const products = Array.from(new Set(reports.map(item => String(item.producto || '').trim()).filter(Boolean)));
+    const productValues = Array.from(new Set(reports.map(item => String(item.producto || '').trim()).filter(Boolean)));
+    const categoryValues = Array.from(new Set(reports.map(item => String(item.productoCategoria || '').trim()).filter(Boolean)));
+    const values = Array.from(new Set([...categoryValues, ...productValues]));
 
-    const values = Array.from(new Set([...categories, ...products]));
     if (selectedReportProduct && selectedReportProduct.trim() && !values.includes(selectedReportProduct.trim())) {
         values.unshift(selectedReportProduct.trim());
     }
