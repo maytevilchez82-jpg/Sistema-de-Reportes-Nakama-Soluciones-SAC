@@ -383,11 +383,11 @@ function getFilteredReportes() {
         filtered = filtered.filter(item => String(item.empleado || '').trim() === String(selectedReportEmployee).trim());
     }
     if (selectedReportProduct) {
+        const sel = normalizeOptionKey(selectedReportProduct);
         filtered = filtered.filter(item => {
-            const productValue = String(item.producto || '').trim();
-            const categoryValue = String(item.productoCategoria || '').trim();
-            const selectedValue = String(selectedReportProduct).trim();
-            return productValue === selectedValue || categoryValue === selectedValue;
+            const productValue = normalizeOptionKey(String(item.producto || ''));
+            const categoryValue = normalizeOptionKey(String(item.productoCategoria || ''));
+            return productValue === sel || categoryValue === sel || productValue.indexOf(sel) !== -1 || categoryValue.indexOf(sel) !== -1;
         });
     }
     
@@ -410,10 +410,14 @@ function getFilteredReportesForFilter(excludeField) {
             if (String(item.empleado || '').trim() !== String(selectedReportEmployee).trim()) return false;
         }
         if (excludeField !== 'producto' && selectedReportProduct) {
-            const selectedValue = String(selectedReportProduct).trim();
-            const productValue = String(item.producto || '').trim();
-            const categoryValue = String(item.productoCategoria || '').trim();
-            if (productValue !== selectedValue && categoryValue !== selectedValue) return false;
+            const selectedValue = normalizeOptionKey(selectedReportProduct);
+            const productValue = normalizeOptionKey(String(item.producto || ''));
+            const categoryValue = normalizeOptionKey(String(item.productoCategoria || ''));
+            if (productValue === selectedValue || categoryValue === selectedValue || productValue.indexOf(selectedValue) !== -1 || categoryValue.indexOf(selectedValue) !== -1) {
+                // keep
+            } else {
+                return false;
+            }
         }
         return true;
     });
@@ -781,23 +785,66 @@ function renderReportProductFilterOptions() {
     if (!select) return;
 
     const reports = getFilteredReportesForFilter('producto');
-    const productValues = Array.from(new Set(reports.map(item => String(item.producto || '').trim()).filter(Boolean)));
-    const categoryValues = Array.from(new Set(reports.map(item => String(item.productoCategoria || '').trim()).filter(Boolean)));
-    const values = Array.from(new Set([...categoryValues, ...productValues]));
+    const productValues = reports.map(item => String(item.producto || '').trim()).filter(Boolean);
+    const categoryValues = reports.map(item => String(item.productoCategoria || '').trim()).filter(Boolean);
 
-    if (selectedReportProduct && selectedReportProduct.trim() && !values.includes(selectedReportProduct.trim())) {
-        values.unshift(selectedReportProduct.trim());
+    // Normalizar y deduplicar (ignorando mayúsculas/acentos y palabras repetidas dentro de la misma etiqueta)
+    const normalizedMap = new Map();
+    // Excluir estas etiquetas del filtro (sin distinguir mayúsculas/acentos)
+    const excludeKeys = new Set(['cargadores', 'impresoras', 'proyectores']);
+    function pushValue(v) {
+        if (!v) return;
+        const key = normalizeOptionKey(v);
+        if (!key) return;
+        if (excludeKeys.has(key)) return; // saltar valores excluidos
+        const candidate = dedupeWordsPreserve(v);
+        const existing = normalizedMap.get(key);
+        // Preferir la etiqueta más larga (más descriptiva) como representante
+        if (!existing || (String(candidate).length > String(existing).length)) {
+            normalizedMap.set(key, candidate);
+        }
     }
+    // recorrer categorías primero para darles preferencia visual, luego productos
+    categoryValues.forEach(pushValue);
+    productValues.forEach(pushValue);
+
+    // Asegurar que la selección actual esté presente
+    if (selectedReportProduct && String(selectedReportProduct).trim()) {
+        const selKey = normalizeOptionKey(selectedReportProduct);
+        if (selKey && !normalizedMap.has(selKey)) {
+            normalizedMap.set(selKey, dedupeWordsPreserve(String(selectedReportProduct).trim()));
+        }
+    }
+
+    const values = Array.from(normalizedMap.values());
     values.sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
+    // Dedupe final: asegurar que no existan etiquetas muy similares o repetidas
+    const finalValues = [];
+    const seenKeys = new Set();
+    values.forEach(v => {
+        const key = normalizeOptionKey(v);
+        if (!key) return;
+        if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            finalValues.push(v);
+        }
+    });
+
     const options = ['<option value="">Todos los equipos</option>'];
-    values.forEach(value => {
+    finalValues.forEach(value => {
         const safe = String(value).replace(/"/g, '&quot;');
         options.push(`<option value="${safe}">${escapeHtml(value)}</option>`);
     });
 
     select.innerHTML = options.join('');
-    select.value = selectedReportProduct || '';
+    if (selectedReportProduct && String(selectedReportProduct).trim()) {
+        const selKey = normalizeOptionKey(selectedReportProduct);
+        const rep = normalizedMap.get(selKey) || String(selectedReportProduct).trim();
+        select.value = rep;
+    } else {
+        select.value = '';
+    }
 }
 
 function initializeCharts() {
@@ -1656,6 +1703,30 @@ function commitActiveEdit() {
 
 function normalizeHeader(value) {
     return value.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+function normalizeOptionKey(value) {
+    if (!value && value !== '') return '';
+    // Normaliza, elimina diacríticos, convierte a minúsculas y remueve puntuación
+    const base = normalizeHeader(String(value || ''));
+    // Reemplaza cualquier carácter que no sea letra/número/espacio por espacio
+    const cleaned = base.replace(/[^a-z0-9\s]/g, ' ');
+    return cleaned.replace(/\s+/g, ' ').trim();
+}
+
+function dedupeWordsPreserve(value) {
+    if (!value) return value;
+    const parts = String(value).split(/\s+/);
+    const seen = new Set();
+    const out = [];
+    parts.forEach(p => {
+        const k = p.toLowerCase();
+        if (!seen.has(k)) {
+            seen.add(k);
+            out.push(p);
+        }
+    });
+    return out.join(' ');
 }
 
 function emptyInventoryRow() {

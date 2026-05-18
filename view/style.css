@@ -142,8 +142,8 @@ button:hover{
 .sidebar-brand img{
     width:auto;
     height:auto;
-    max-width:160px;
-    max-height:140px;
+    max-width:180px;
+    max-height:180px;
     border-radius:0;
     object-fit:contain;
     display:block;
@@ -921,7 +921,7 @@ button:hover{
     padding:22px;
 }
 
-/* Mobile: mantener el diseño de escritorio visualmente estable
+/* Diseno para movil que se mantenga el diseño de escritorio visualmente estable
    en pantallas pequeñas evitamos el reflow/stacking y permitimos
    desplazamiento horizontal para que la página se vea "tal cual".
 */
