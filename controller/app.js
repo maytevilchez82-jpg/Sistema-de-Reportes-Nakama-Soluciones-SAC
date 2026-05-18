@@ -2,6 +2,10 @@ function login() {
     let user = document.getElementById("usuario").value.trim();
     let pass = document.getElementById("password").value.trim();
 
+    if (!user || !pass) {
+        return;
+    }
+
     if (user === "admin" && pass === "admin") {
         document.getElementById("login-section").style.display = "none";
         document.getElementById("dashboard").style.display = "block";
@@ -1705,9 +1709,6 @@ function renderAnalysis() {
             : '';
         predictionEl.innerText = `IA predictiva: ${empleado} podría presentar un fallo en ${when} (${equipo}). Confianza: ${conf}.${reason}${trendText}`;
     }
-
-    // Mostrar notificaciones de trabajadores en riesgo
-    try { renderWorkerNotifications(); } catch (e) { console.warn('Error mostrando notificaciones de trabajador', e); }
 }
 
 function getAtRiskWorkers() {
