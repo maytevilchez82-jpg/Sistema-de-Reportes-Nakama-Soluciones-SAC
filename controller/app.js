@@ -965,6 +965,7 @@ function updateAnalysisCharts(data) {
     }
 
     renderReportChart();
+    try { renderWorkerNotifications(); } catch (e) { console.warn('Error mostrando notificaciones de trabajador', e); }
 }
 
 function renderReportChart() {
@@ -1692,6 +1693,84 @@ function renderAnalysis() {
             : '';
         predictionEl.innerText = `IA predictiva: ${empleado} podría presentar un fallo en ${when} (${equipo}). Confianza: ${conf}.${reason}${trendText}`;
     }
+
+    // Mostrar notificaciones de trabajadores en riesgo
+    try { renderWorkerNotifications(); } catch (e) { console.warn('Error mostrando notificaciones de trabajador', e); }
+}
+
+function getAtRiskWorkers() {
+    ensureInventoryBySheetModel();
+    const inventory = getFilteredAnalysisInventory();
+    const atRisk = new Map();
+
+    // 1) Usar la predicción principal (si existe)
+    const predicted = predictNextFailureEvent(inventory);
+    if (predicted && predicted.empleado && String(predicted.empleado).trim() && predicted.empleado !== 'N/A') {
+        atRisk.set(String(predicted.empleado).trim(), `IA: posible fallo en ${predicted.equipo || 'equipo desconocido'} el ${formatDateLongEs(predicted.date)}. Confianza: ${predicted.confidence || 'Baja'}`);
+    }
+
+    // 2) Empleados con incidencias sin resolver recientes o múltiples sin resolver
+    const unresolvedCounts = {};
+    const now = new Date();
+    inventory.forEach(item => {
+        const emp = String(item.empleado || '').trim();
+        if (!emp) return;
+        const estadoText = String(item.estado || '').toLowerCase();
+        const isResolved = /resuelto|solucionado|entregado|ok|activo/i.test(estadoText);
+        const date = parseDate(item.fechaDevolucion) || parseDate(item.fechaEntrega) || now;
+        const age = daysBetween(date, now);
+        if (!isResolved) {
+            unresolvedCounts[emp] = (unresolvedCounts[emp] || 0) + 1;
+            if (age <= 30 || age === 0) {
+                if (!atRisk.has(emp)) {
+                    atRisk.set(emp, `Registro sin resolver (${item.equipo || 'equipo'}) reportado hace ${age} día(s).`);
+                }
+            }
+        }
+    });
+
+    Object.keys(unresolvedCounts).forEach(emp => {
+        const c = unresolvedCounts[emp];
+        if (c >= 2 && !atRisk.has(emp)) {
+            atRisk.set(emp, `${c} incidencia(s) sin resolver`);
+        }
+    });
+
+    return Array.from(atRisk.entries()).map(([empleado, reason]) => ({ empleado, reason }));
+}
+
+function renderWorkerNotifications() {
+    const container = document.getElementById('worker-notifications');
+    if (!container) return;
+
+    const list = getAtRiskWorkers();
+    container.innerHTML = '';
+
+    if (!list || !list.length) return;
+
+    // Solicitar permiso de notificación si corresponde
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        try { Notification.requestPermission(); } catch (e) { /* ignorar */ }
+    }
+
+    list.forEach(item => {
+        const toast = document.createElement('div');
+        toast.className = 'worker-toast';
+        toast.innerHTML = `<strong>${escapeHtml(item.empleado)}</strong><small>${escapeHtml(item.reason)}</small>`;
+        container.appendChild(toast);
+        // Mostrar notificación del sistema si se permite
+        try {
+            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                new Notification(`Riesgo: ${item.empleado}`, { body: item.reason });
+            }
+        } catch (e) {
+            // ignore Notification errors
+        }
+        // Auto-remover después de 8s
+        setTimeout(() => {
+            try { if (toast && toast.parentNode) toast.parentNode.removeChild(toast); } catch (e) {}
+        }, 8000);
+    });
 }
 
 function commitActiveEdit() {
