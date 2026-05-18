@@ -478,6 +478,10 @@ function loadInventoryFromStorage() {
     const stored = localStorage.getItem('inventoryData');
     if (!stored) {
         ensureInventoryBySheetModel();
+        if (!window.APP_MODEL) {
+            window.APP_MODEL = {};
+        }
+        window.APP_MODEL.hasImportedInventory = false;
         return;
     }
 
@@ -491,11 +495,13 @@ function loadInventoryFromStorage() {
             window.APP_MODEL.activeInventorySheet = 'Principal';
             window.APP_MODEL.excelFieldLabels = getDefaultExcelFieldLabels();
             delete window.APP_MODEL.inventory;
+            window.APP_MODEL.hasImportedInventory = true;
         } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.inventory) && !parsed.inventoryBySheet) {
             window.APP_MODEL.inventoryBySheet = { Principal: parsed.inventory };
             window.APP_MODEL.activeInventorySheet = 'Principal';
             window.APP_MODEL.excelFieldLabels = getDefaultExcelFieldLabels();
             delete window.APP_MODEL.inventory;
+            window.APP_MODEL.hasImportedInventory = true;
         } else if (parsed && typeof parsed === 'object' && parsed.inventoryBySheet && typeof parsed.inventoryBySheet === 'object') {
             window.APP_MODEL.inventoryBySheet = parsed.inventoryBySheet;
             const keys = Object.keys(window.APP_MODEL.inventoryBySheet);
@@ -507,8 +513,10 @@ function loadInventoryFromStorage() {
                 ? Object.assign({}, getDefaultExcelFieldLabels(), parsed.excelFieldLabels)
                 : getDefaultExcelFieldLabels();
             delete window.APP_MODEL.inventory;
+            window.APP_MODEL.hasImportedInventory = true;
         } else {
             ensureInventoryBySheetModel();
+            window.APP_MODEL.hasImportedInventory = false;
         }
     } catch (error) {
         console.warn('Error leyendo inventoryData desde localStorage', error);
@@ -519,6 +527,7 @@ function loadInventoryFromStorage() {
         window.APP_MODEL.activeInventorySheet = 'Principal';
         window.APP_MODEL.excelFieldLabels = getDefaultExcelFieldLabels();
         delete window.APP_MODEL.inventory;
+        window.APP_MODEL.hasImportedInventory = false;
     }
 }
 
@@ -526,6 +535,9 @@ function saveInventoryToStorage() {
     if (!window.APP_MODEL) return;
     ensureInventoryBySheetModel();
     try {
+        if (window.APP_MODEL.hasImportedInventory !== true) {
+            window.APP_MODEL.hasImportedInventory = true;
+        }
         localStorage.setItem('inventoryData', JSON.stringify({
             inventoryBySheet: window.APP_MODEL.inventoryBySheet,
             activeInventorySheet: window.APP_MODEL.activeInventorySheet,
@@ -1700,6 +1712,9 @@ function renderAnalysis() {
 
 function getAtRiskWorkers() {
     ensureInventoryBySheetModel();
+    if (!window.APP_MODEL || window.APP_MODEL.hasImportedInventory !== true) {
+        return [];
+    }
     const inventory = getFilteredAnalysisInventory();
     const atRisk = new Map();
 
@@ -2141,6 +2156,7 @@ function loadInventoryFromExcel(event) {
             selectedAnalysisSheet = sheetKeys.length === 1 ? sheetKeys[0] : 'all';
             delete window.APP_MODEL.inventory;
             window.APP_MODEL.excelFieldLabels = Object.assign({}, getDefaultExcelFieldLabels(), fieldLabels || {});
+            window.APP_MODEL.hasImportedInventory = true;
             saveInventoryToStorage();
 
             renderInventory();
