@@ -302,13 +302,13 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="chat-header">
         <div>
             <strong id="chat-title">Asistente Ejecutivo</strong>
-            <p>Inteligencia operativa sobre su inventario corporativo.</p>
+            
         </div>
         <button type="button" class="chat-close" onclick="closeChat()" aria-label="Cerrar chat">×</button>
     </div>
     <div class="chat-body" role="log" aria-live="polite"></div>
     <div class="chat-input-row">
-        <input id="chat-input" type="text" placeholder="Ej.: ¿Cuántos registros hay? ¿Casos pendientes?" onkeydown="if(event.key==='Enter'){sendChatMessage();}">
+        <input id="chat-input" type="text" placeholder="" onkeydown="if(event.key==='Enter'){sendChatMessage();}">
         <button onclick="sendChatMessage()">Consultar</button>
     </div>
 </section>

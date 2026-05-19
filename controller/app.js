@@ -230,16 +230,7 @@ function detectEquipmentTerm(q) {
 }
 
 function chatExecutiveIntro() {
-    return [
-        'Buenos días. Soy su Asistente Ejecutivo Nakama.',
-        '',
-        'Puedo consultar su inventario corporativo en tiempo real:',
-        '• Totales y estados (resueltos / pendientes)',
-        '• Empleados, equipos e incidencias',
-        '• Fechas de entrega y devolución',
-        '',
-        'Ejemplo: «¿Cuál fue el problema de Pedro?» o «¿Cuántos registros hay?»'
-    ].join('\n');
+    return 'Buenos días, soy el asistente de Nakama. ¿En qué puedo ayudarte?';
 }
 
 function chatExecutiveFallback() {
@@ -381,13 +372,10 @@ function getChatResponse(question) {
 
     // ==================== RESPUESTAS DEL CHATBOT ====================
 
-    if (/^(\s*)(hola|buenos|buenas|hey|saludos|hi|hello)\b/.test(q)) {
-        return 'Buenos días. Indíqueme qué aspecto del inventario desea consultar: totales, estados, empleados, equipos o fechas.';
-    }
 
-    if (/^(ayuda|help)\b|que puedes|qué puedes|que haces|qué haces|quien eres|quién eres|para que sirves/.test(q)) {
-        return chatExecutiveIntro();
-    }
+    if (/^(\s*)(hola|buenos|buenas|hey|saludos|hi|hello)\b/.test(q)) {
+    return 'Buenos días, soy el asistente de Nakama. ¿En qué puedo ayudarte?';
+}
 
     // ¿Cuál fue el problema? → registro completo del Excel
     if (isProblemQuestion(q)) {
@@ -611,9 +599,9 @@ function getChatResponse(question) {
             return `Coincidencias encontradas:\n${results}`;
         }
     }
-
-    return chatExecutiveFallback();
+return chatExecutiveFallback(); 
 }
+   
 
 /* ─── SECCIÓN: NAVEGACIÓN Y FILTROS GLOBALES ───
    showPanel()              → Cambia entre Inventario, Análisis, Alertas y Reporte
