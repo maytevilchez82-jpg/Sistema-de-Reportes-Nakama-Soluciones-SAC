@@ -1,20 +1,625 @@
-function login() {
-    let user = document.getElementById("usuario").value.trim();
-    let pass = document.getElementById("password").value.trim();
+/**
+ * =============================================================================
+ * ARCHIVO: controller/app.js
+ * CAPA:   Controlador (lógica de la aplicación)
+ * =============================================================================
+ * Qué es:     Cerebro del Sistema Nakama: conecta la vista (index.html) con los datos.
+ * Para qué:  Login, inventario, Excel, gráficas, alertas, reportes y chat ejecutivo.
+ * Depende de: model/data.js (APP_MODEL), Chart.js, XLSX, ExcelJS, FileSaver
+ * =============================================================================
+ */
 
-    if (!user || !pass) {
+/* ─── SECCIÓN: AUTENTICACIÓN (index.html → #login-section) ───
+   login()        → Valida usuario/contraseña y muestra el dashboard
+   DOMContentLoaded → Enter para navegar entre campos e iniciar sesión
+   logout()       → Cierra sesión y vuelve al login (más abajo en el archivo) */
+
+function login() {
+    let userInput = document.getElementById("usuario");
+    let passInput = document.getElementById("password");
+    let user = userInput.value.trim();
+    let pass = passInput.value.trim();
+    let btn = document.getElementById("login-btn");
+
+    // Validar campos
+    if (!user) {
+        alert("Por favor ingresa el usuario");
+        userInput.focus();
+        return;
+    }
+    
+    if (!pass) {
+        alert("Por favor ingresa la contraseña");
+        passInput.focus();
         return;
     }
 
-    if (user === "admin" && pass === "admin") {
-        document.getElementById("login-section").style.display = "none";
-        document.getElementById("dashboard").style.display = "block";
-    } else {
-        alert("Usuario o contraseña incorrectos");
-    }
+    // Agregar feedback visual
+    btn.disabled = true;
+    btn.textContent = "Verificando...";
+
+    // Simular validación
+    setTimeout(() => {
+        if (user === "admin" && pass === "admin") {
+            // Ocultar login, mostrar dashboard
+            document.getElementById("login-section").style.display = "none";
+            document.getElementById("dashboard").style.display = "block";
+            document.getElementById("dashboard").classList.remove("hidden");
+            
+            // Mostrar elemento chat si existe
+            const fab = document.getElementById('chat-open-fab');
+            if (fab) fab.style.display = 'flex';
+            
+            closeChat();
+            
+            // Limpiar campos
+            userInput.value = "";
+            passInput.value = "";
+            userInput.classList.remove('has-value');
+            passInput.classList.remove('has-value');
+            
+            // Restaurar botón
+            btn.disabled = false;
+            btn.textContent = "ENTRAR";
+            
+            // Cargar datos del panel
+            if (typeof renderInventoryTable === 'function') {
+                renderInventoryTable();
+            }
+        } else {
+            alert("❌ Usuario o contraseña incorrectos\n\n✓ Usa estas credenciales:\n   Usuario: admin\n   Contraseña: admin");
+            passInput.value = "";
+            passInput.classList.remove('has-value');
+            passInput.focus();
+            
+            // Restaurar botón
+            btn.disabled = false;
+            btn.textContent = "ENTRAR";
+        }
+    }, 300);
 }
 
-// Variable global para el filtro de mes
+// Permitir login con tecla Enter
+document.addEventListener('DOMContentLoaded', function() {
+    const usuarioInput = document.getElementById("usuario");
+    const passwordInput = document.getElementById("password");
+    
+    if (usuarioInput) {
+        usuarioInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                passwordInput.focus();
+            }
+        });
+    }
+    
+    if (passwordInput) {
+        passwordInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                login();
+            }
+        });
+    }
+    
+    // Inicializar cualquier tabla o panel
+    setTimeout(() => {
+        if (document.getElementById("dashboard").style.display === "block") {
+            renderInventoryTable();
+        }
+    }, 100);
+});
+
+/* ─── SECCIÓN: CHAT EJECUTIVO (index.html → #chat-widget, #chat-open-fab) ───
+   openChat / closeChat     → Mostrar u ocultar el asistente
+   sendChatMessage          → Envía pregunta y muestra respuesta
+   getChatResponse          → Interpreta la pregunta y consulta el Excel en memoria
+   formatFullExcelRecord    → Devuelve todas las columnas de un registro */
+
+function openChat() {
+    const widget = document.getElementById('chat-widget');
+    const fab = document.getElementById('chat-open-fab');
+    if (!widget) return;
+    widget.classList.remove('hidden');
+    widget.classList.add('open');
+    widget.style.display = 'flex';
+    if (fab) fab.style.display = 'none';
+
+    const body = document.querySelector('.chat-body');
+    if (body && body.innerHTML.trim() === '') {
+        appendChatMessage('assistant', chatExecutiveIntro());
+    }
+
+    setTimeout(() => {
+        const input = document.getElementById('chat-input');
+        if (input) input.focus();
+    }, 100);
+}
+
+function closeChat() {
+    const widget = document.getElementById('chat-widget');
+    const fab = document.getElementById('chat-open-fab');
+    if (widget) {
+        widget.classList.add('hidden');
+        widget.classList.remove('open');
+        widget.style.display = 'none';
+    }
+    if (fab) fab.style.display = 'flex';
+}
+
+function appendChatMessage(author, text) {
+    const body = document.querySelector('.chat-body');
+    if (!body) return;
+    const message = document.createElement('div');
+    message.className = `chat-message ${author}`;
+    const html = `<div class="message-text">${escapeHtml(String(text)).replace(/\n/g,'<br>')}</div>`;
+    message.innerHTML = html;
+    body.appendChild(message);
+    body.scrollTop = body.scrollHeight;
+}
+
+function showChatTyping() {
+    const body = document.querySelector('.chat-body');
+    if (!body) return;
+    removeChatTyping();
+    const el = document.createElement('div');
+    el.id = 'chat-typing-indicator';
+    el.className = 'chat-message assistant typing';
+    el.innerHTML = '<div class="message-text"><span class="typing-dots"><span></span><span></span><span></span></span></div>';
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+}
+
+function removeChatTyping() {
+    const el = document.getElementById('chat-typing-indicator');
+    if (el) el.remove();
+}
+
+function sendChatMessage() {
+    const input = document.getElementById('chat-input');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    appendChatMessage('user', text);
+    input.value = '';
+
+    showChatTyping();
+    const response = getChatResponse(text);
+    setTimeout(() => {
+        removeChatTyping();
+        appendChatMessage('assistant', response);
+    }, 380);
+}
+
+function formatChatDate(value) {
+    if (!value) return '';
+    const raw = String(value).trim();
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime()) && /\d{4}/.test(raw)) {
+        return parsed.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
+    }
+    return raw;
+}
+
+function findEmployeeInQuestion(q, rows, getEmployeeTextFn) {
+    const employees = [...new Set(rows.map(r => getEmployeeTextFn(r)).filter(Boolean))];
+    const qNorm = String(q).toLowerCase();
+
+    for (const emp of employees) {
+        if (qNorm.includes(emp.toLowerCase())) return emp;
+    }
+
+    const qWords = qNorm.split(/[^a-záéíóúñü0-9]+/i).filter(w => w.length > 2);
+    let best = null;
+    let bestScore = 0;
+
+    employees.forEach(emp => {
+        const parts = emp.toLowerCase().split(/\s+/).filter(p => p.length > 2);
+        const score = parts.filter(p => qWords.some(w => p.includes(w) || w.includes(p) || p.startsWith(w.slice(0, 4)))).length;
+        if (score > bestScore) {
+            bestScore = score;
+            best = emp;
+        }
+    });
+
+    return bestScore > 0 ? best : null;
+}
+
+function detectEquipmentTerm(q) {
+    const equipmentTerms = ['cargador', 'charger', 'laptop', 'portatil', 'portátil', 'notebook', 'pc', 'monitor', 'impresor', 'proyector', 'impresora', 'router', 'servidor', 'celular', 'móvil', 'movil', 'teléfono', 'telefono', 'tablet', 'mouse', 'teclado', 'usb', 'cable', 'fuente'];
+    const match = String(q).toLowerCase().match(new RegExp(equipmentTerms.join('|'), 'i'));
+    return match ? match[0] : null;
+}
+
+function chatExecutiveIntro() {
+    return [
+        'Buenos días. Soy su Asistente Ejecutivo Nakama.',
+        '',
+        'Puedo consultar su inventario corporativo en tiempo real:',
+        '• Totales y estados (resueltos / pendientes)',
+        '• Empleados, equipos e incidencias',
+        '• Fechas de entrega y devolución',
+        '',
+        'Ejemplo: «¿Cuál fue el problema de Pedro?» o «¿Cuántos registros hay?»'
+    ].join('\n');
+}
+
+function chatExecutiveFallback() {
+    return [
+        'No localicé información coincidente en el inventario cargado.',
+        '',
+        'Puede consultarme, por ejemplo:',
+        '• Total de registros o equipos',
+        '• Casos resueltos o pendientes',
+        '• ¿Cuál fue el problema? (con nombre o equipo)',
+        '• Fecha de entrega o devolución de un empleado'
+    ].join('\n');
+}
+
+function formatExcelCellValue(key, value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return '';
+    const keyLower = String(key).toLowerCase();
+    if (/fecha|date|entrega|devoluci[oó]n|d[ií]a/.test(keyLower) && /\d{4}/.test(raw)) {
+        return formatChatDate(raw);
+    }
+    return raw;
+}
+
+function formatFullExcelRecord(row, index, total) {
+    const header = total > 1 ? `— Registro ${index + 1} de ${total} —` : '— Detalle del registro —';
+    const lines = [header];
+    Object.keys(row).forEach(col => {
+        const formatted = formatExcelCellValue(col, row[col]);
+        if (formatted) lines.push(`• ${col}: ${formatted}`);
+    });
+    return lines.join('\n');
+}
+
+function isProblemQuestion(q) {
+    return /(cu[aá]l|que|qué)\s+(fue\s+)?(el\s+)?problema/i.test(q)
+        || /(cu[aá]l|que|qué)\s+problema\s+(tuvo|ten[ií]a|present[oó]|report[oó])/i.test(q)
+        || /(descripci[oó]n|detalle|informaci[oó]n|reporte)\s+(del\s+)?problema/i.test(q)
+        || /problema\s+(de|del|con|que\s+tuvo|reportado)/i.test(q)
+        || /(qu[eé]|que)\s+(fall[oó]|pas[oó]|sucedi[oó]|ocurri[oó])/i.test(q)
+        || /(dime|indica|muestra|cu[eé]ntame)\s+(el\s+)?problema/i.test(q);
+}
+
+function getChatResponse(question) {
+    const q = String(question || '').trim().toLowerCase();
+    ensureInventoryBySheetModel();
+    const rows = getAllInventoryFlat();
+    if (!rows.length) {
+        return 'Aún no hay datos corporativos disponibles.\n\nCargue su Excel desde Inventario → «Cargar Excel» y formule nuevamente su consulta.';
+    }
+
+    // ==================== FUNCIONES GENÉRICAS ====================
+    
+    // Detectar columnas disponibles
+    const getAllColumns = () => {
+        if (!rows.length) return [];
+        const cols = new Set();
+        rows.forEach(row => {
+            Object.keys(row).forEach(key => cols.add(key));
+        });
+        return Array.from(cols);
+    };
+    
+    const allColumns = getAllColumns();
+
+    // Buscar una columna por variaciones
+    const findColumn = (keywords) => {
+        if (!Array.isArray(keywords)) keywords = [keywords];
+        const keywordsLower = keywords.map(k => String(k).toLowerCase());
+        
+        return allColumns.find(col => {
+            const colLower = String(col).toLowerCase();
+            return keywordsLower.some(k => colLower.includes(k) || k === colLower);
+        });
+    };
+
+    // Obtener valor de una fila con búsqueda flexible
+    const getValue = (row, keywords) => {
+        const col = findColumn(keywords);
+        if (col && row[col] != null) {
+            return String(row[col]).trim();
+        }
+        return '';
+    };
+
+    // Funciones específicas adaptadas
+    const getEmployeeColumn = () => findColumn(['empleado', 'employee', 'responsable', 'solicitante', 'contacto', 'persona', 'usuario']);
+    const getEquipmentColumn = () => findColumn(['equipo', 'equipment', 'producto', 'product', 'dispositivo', 'aparato']);
+    const getProblemColumn = () => findColumn(['descripción', 'description', 'problema', 'problem', 'issue', 'asunto', 'detalle', 'detail']);
+    const getStatusColumn = () => findColumn(['estado', 'status', 'estado', 'situación']);
+    const getDateColumns = () => ({
+        delivery: findColumn(['entrega', 'delivery', 'fecha entrega', 'fecha new']),
+        return: findColumn(['devolución', 'return', 'fecha devolución', 'fecha return']),
+        any: findColumn(['fecha', 'date', 'día', 'data'])
+    });
+
+    const normalizeText = text => String(text || '').toLowerCase();
+    
+    const getEmployeeText = row => getValue(row, getEmployeeColumn() || ['empleado', 'employee', 'responsable']);
+    const getEquipmentText = row => getValue(row, getEquipmentColumn() || ['equipo', 'equipment', 'producto']);
+    const getProblemText = row => getValue(row, getProblemColumn() || ['descripción', 'problema', 'issue']);
+    const getStatusText = row => normalizeText(getValue(row, getStatusColumn() || ['estado', 'status'])) || 'sin estado';
+    
+    const getDeliveryDate = row => getValue(row, getDateColumns().delivery || ['entrega', 'delivery']);
+    const getReturnDate = row => getValue(row, getDateColumns().return || ['devolución', 'return']);
+    const getAnyDate = row => getValue(row, getDateColumns().any || ['fecha', 'date']);
+
+    const isResolved = row => /resuelto|solucionado|entregado|ok|activo|completado|completo|cerrado|done|completed/i.test(getStatusText(row));
+    const isPending = row => /pendiente|no resuelto|abierto|sin resolver|urgente|crítico|pending|open|blocked/i.test(getStatusText(row));
+
+    // Contar por una columna
+    const countByColumn = (colName) => {
+        const col = findColumn(colName);
+        if (!col) return {};
+        
+        return rows.reduce((acc, row) => {
+            const value = getValue(row, col) || 'Sin dato';
+            acc[value] = (acc[value] || 0) + 1;
+            return acc;
+        }, {});
+    };
+
+    // Buscar término en cualquier celda
+    const searchTerm = (term) => {
+        const searchLower = String(term).toLowerCase();
+        return rows.filter(row => {
+            return Object.values(row).some(val => 
+                String(val || '').toLowerCase().includes(searchLower)
+            );
+        });
+    };
+
+    const formatDateLine = (date, employee, equipment) => {
+        const parts = [`• ${formatChatDate(date)}`];
+        if (employee) parts.push(employee);
+        if (equipment) parts.push(`(${equipment})`);
+        return parts.join(' — ');
+    };
+
+    // ==================== RESPUESTAS DEL CHATBOT ====================
+
+    if (/^(\s*)(hola|buenos|buenas|hey|saludos|hi|hello)\b/.test(q)) {
+        return 'Buenos días. Indíqueme qué aspecto del inventario desea consultar: totales, estados, empleados, equipos o fechas.';
+    }
+
+    if (/^(ayuda|help)\b|que puedes|qué puedes|que haces|qué haces|quien eres|quién eres|para que sirves/.test(q)) {
+        return chatExecutiveIntro();
+    }
+
+    // ¿Cuál fue el problema? → registro completo del Excel
+    if (isProblemQuestion(q)) {
+        const empFilter = findEmployeeInQuestion(q, rows, getEmployeeText);
+        const equipTerm = detectEquipmentTerm(q);
+
+        let matches = rows.filter(r => {
+            const empOk = !empFilter || getEmployeeText(r).toLowerCase().includes(empFilter.toLowerCase());
+            const eqOk = !equipTerm || getEquipmentText(r).toLowerCase().includes(equipTerm.toLowerCase());
+            return empOk && eqOk;
+        });
+
+        if (!matches.length && (empFilter || equipTerm)) {
+            return 'No encontré un registro en el Excel que coincida con el colaborador o equipo indicado.';
+        }
+
+        if (!matches.length) matches = rows;
+
+        const withProblem = matches.filter(r => getProblemText(r));
+        const source = withProblem.length ? withProblem : matches;
+        const limit = 5;
+        const slice = source.slice(0, limit);
+
+        const context = [empFilter && `colaborador: ${empFilter}`, equipTerm && `equipo: ${equipTerm}`].filter(Boolean).join(' · ');
+        const intro = context
+            ? `Información del Excel (${context}):`
+            : `Información del Excel — ${slice.length} registro${slice.length === 1 ? '' : 's'}:`;
+
+        const body = slice.map((row, i) => formatFullExcelRecord(row, i, slice.length)).join('\n\n');
+        const extra = source.length > limit ? `\n\n…y ${source.length - limit} registro(s) adicional(es) en el inventario.` : '';
+
+        return `${intro}\n\n${body}${extra}`;
+    }
+
+    // Consulta específica: empleado + equipo + fecha (prioridad alta)
+    if (/(entreg[oó]|entregado|entrega|cu[aá]ndo|qu[eé] d[ií]a|fecha).*(a |al |para )?/i.test(q) || /(a |al ).*(entreg|fecha|cu[aá]ndo)/i.test(q)) {
+        const foundEmployee = findEmployeeInQuestion(q, rows, getEmployeeText);
+        const foundEquipment = detectEquipmentTerm(q);
+
+        if (foundEmployee || foundEquipment) {
+            const matches = rows.filter(r => {
+                const empMatch = !foundEmployee || getEmployeeText(r).toLowerCase().includes(foundEmployee.toLowerCase());
+                const eqMatch = !foundEquipment || getEquipmentText(r).toLowerCase().includes(foundEquipment.toLowerCase());
+                return empMatch && eqMatch;
+            });
+
+            if (matches.length) {
+                const latest = matches[matches.length - 1];
+                const deliveryDate = getDeliveryDate(latest);
+                const returnDate = getReturnDate(latest);
+                const dateValue = deliveryDate || returnDate;
+                const label = deliveryDate ? 'entrega' : 'devolución';
+
+                if (dateValue) {
+                    const who = foundEmployee || getEmployeeText(latest);
+                    const what = foundEquipment ? getEquipmentText(latest) : getEquipmentText(latest);
+                    return [
+                        `Registro localizado — ${label}:`,
+                        formatChatDate(dateValue),
+                        who ? `Colaborador: ${who}` : '',
+                        what ? `Equipo: ${what}` : '',
+                        matches.length > 1 ? `\nNota: existen ${matches.length} movimientos relacionados; se muestra el más reciente.` : ''
+                    ].filter(Boolean).join('\n');
+                }
+                return 'El registro existe, pero no tiene fecha de entrega ni devolución documentada.';
+            }
+            return 'No encontré un registro que coincida con el colaborador o equipo indicado.';
+        }
+    }
+
+    // Contar registros totales
+    if (/cu[aá]ntos|cantidad|total|n[uú]mero/.test(q) && /(registros|casos|filas|datos|items|elementos|equipos|entradas|hay)/i.test(q)) {
+        return `Resumen ejecutivo: ${rows.length} registro${rows.length === 1 ? '' : 's'} en inventario corporativo.`;
+    }
+
+    // Contar por empleado
+    if (getEmployeeColumn() && /cu[aá]ntos|cantidad|total|empleados?|personas?|colaboradores?/i.test(q)) {
+        const empCounts = countByColumn(getEmployeeColumn());
+        const totalEmployees = Object.keys(empCounts).length;
+        const lines = Object.entries(empCounts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 6)
+            .map(([name, count]) => `• ${name}: ${count} caso${count === 1 ? '' : 's'}`);
+        const extra = Object.keys(empCounts).length > 6 ? `\n• …y ${Object.keys(empCounts).length - 6} colaborador(es) adicional(es)` : '';
+        return `Distribución por colaborador (${totalEmployees} en total):\n${lines.join('\n')}${extra}`;
+    }
+
+    // Estados resueltos/pendientes
+    if (getStatusColumn()) {
+        const resolved = rows.filter(isResolved).length;
+        const pending = rows.filter(isPending).length;
+
+        if (/(resuelto|resueltos|solucionado|cerrado|completado)/.test(q) && !/(no |sin |pendiente)/.test(q)) {
+            return `Estado operativo: ${resolved} caso${resolved === 1 ? '' : 's'} resuelto${resolved === 1 ? '' : 's'} de ${rows.length} registrados.`;
+        }
+
+        if (/(pendiente|no resuelto|abierto|sin resolver|urgente|cr[ií]tico)/.test(q)) {
+            return `Atención requerida: ${pending} caso${pending === 1 ? '' : 's'} pendiente${pending === 1 ? '' : 's'} de ${rows.length} registrados.`;
+        }
+
+        if (/estado|estatus|situaci[oó]n/.test(q)) {
+            const statusCounts = rows.reduce((acc, row) => {
+                const state = getStatusText(row) || 'sin estado';
+                const label = state.charAt(0).toUpperCase() + state.slice(1);
+                acc[label] = (acc[label] || 0) + 1;
+                return acc;
+            }, {});
+            const lines = Object.entries(statusCounts).map(([state, count]) => `• ${state}: ${count}`);
+            return `Desglose por estado:\n${lines.join('\n')}`;
+        }
+    }
+
+    // Fechas generales
+    if (/fecha|fechas|cu[aá]ndo|d[ií]a|mes|a[nñ]o|devoluci[oó]n|entrega|delivery|return/i.test(q)) {
+        const dateColumns = getDateColumns();
+        const equipTerm = detectEquipmentTerm(q);
+        const empFilter = findEmployeeInQuestion(q, rows, getEmployeeText);
+
+        if (/devoluci[oó]n|devuelto|return/.test(q) && dateColumns.return) {
+            let dates = rows.map(r => ({
+                date: getReturnDate(r),
+                employee: getEmployeeText(r),
+                equipment: getEquipmentText(r)
+            })).filter(r => r.date);
+
+            if (equipTerm) dates = dates.filter(d => d.equipment.toLowerCase().includes(equipTerm.toLowerCase()));
+            if (empFilter) dates = dates.filter(d => d.employee.toLowerCase().includes(empFilter.toLowerCase()));
+
+            if (!dates.length) return 'No hay fechas de devolución registradas para ese criterio.';
+            const list = dates.slice(0, 5).map(r => formatDateLine(r.date, r.employee, r.equipment)).join('\n');
+            return `Fechas de devolución:\n${list}`;
+        }
+
+        if (/entrega|entregado|delivery/.test(q) && dateColumns.delivery) {
+            let dates = rows.map(r => ({
+                date: getDeliveryDate(r),
+                employee: getEmployeeText(r),
+                equipment: getEquipmentText(r)
+            })).filter(r => r.date);
+
+            if (equipTerm) dates = dates.filter(d => d.equipment.toLowerCase().includes(equipTerm.toLowerCase()));
+            if (empFilter) dates = dates.filter(d => d.employee.toLowerCase().includes(empFilter.toLowerCase()));
+
+            if (!dates.length) return 'No hay fechas de entrega registradas para ese criterio.';
+            const list = dates.slice(0, 5).map(r => formatDateLine(r.date, r.employee, r.equipment)).join('\n');
+            return `Fechas de entrega:\n${list}`;
+        }
+
+        if (dateColumns.any) {
+            let allDates = rows.map(r => ({
+                date: getAnyDate(r),
+                employee: getEmployeeText(r),
+                equipment: getEquipmentText(r)
+            })).filter(r => r.date);
+
+            if (equipTerm) allDates = allDates.filter(d => d.equipment.toLowerCase().includes(equipTerm.toLowerCase()));
+            if (empFilter) allDates = allDates.filter(d => d.employee.toLowerCase().includes(empFilter.toLowerCase()));
+
+            if (!allDates.length) return 'No hay fechas registradas para ese criterio.';
+            const list = allDates.slice(0, 5).map(r => formatDateLine(r.date, r.employee, r.equipment)).join('\n');
+            return `Calendario operativo:\n${list}`;
+        }
+    }
+
+    // Listado de incidencias (sin pedir detalle completo)
+    if (getProblemColumn() && /problema|fallo|incidencia|issue|error|aver[ií]a|defecto|roto/i.test(q) && !isProblemQuestion(q)) {
+        const equipTerm = detectEquipmentTerm(q);
+        const empFilter = findEmployeeInQuestion(q, rows, getEmployeeText);
+
+        let matches = rows.filter(r => getProblemText(r));
+        if (equipTerm) matches = matches.filter(r => getEquipmentText(r).toLowerCase().includes(equipTerm.toLowerCase()));
+        if (empFilter) matches = matches.filter(r => getEmployeeText(r).toLowerCase().includes(empFilter.toLowerCase()));
+
+        if (!matches.length) return 'No se registran incidencias para el criterio indicado.';
+
+        const list = matches.slice(0, 5).map((row, i) => formatFullExcelRecord(row, i, Math.min(matches.length, 5))).join('\n\n');
+        const extra = matches.length > 5 ? `\n\n…y ${matches.length - 5} registro(s) más.` : '';
+        return `Incidencias documentadas en el Excel:\n\n${list}${extra}`;
+    }
+
+    // Búsqueda por colaborador (nombre suelto) — detalle completo del Excel
+    const employeeByName = findEmployeeInQuestion(q, rows, getEmployeeText);
+    if (employeeByName && q.length > 2 && !isProblemQuestion(q)) {
+        const empRows = rows.filter(r => getEmployeeText(r).toLowerCase().includes(employeeByName.toLowerCase()));
+        const slice = empRows.slice(0, 4);
+        const body = slice.map((row, i) => formatFullExcelRecord(row, i, slice.length)).join('\n\n');
+        const extra = empRows.length > 4 ? `\n\n…y ${empRows.length - 4} registro(s) adicional(es).` : '';
+        return `Expediente de ${employeeByName} (${empRows.length} registro${empRows.length === 1 ? '' : 's'}):\n\n${body}${extra}`;
+    }
+
+    // Equipos específicos
+    if (getEquipmentColumn()) {
+        const term = detectEquipmentTerm(q);
+        if (term) {
+            const filtered = rows.filter(r => getEquipmentText(r).toLowerCase().includes(term.toLowerCase()));
+            if (!filtered.length) return `Sin registros corporativos para «${term}».`;
+
+            const slice = filtered.slice(0, 5);
+            const details = slice.map((row, i) => formatFullExcelRecord(row, i, slice.length)).join('\n\n');
+            const extra = filtered.length > 5 ? `\n\n…y ${filtered.length - 5} registro(s) más.` : '';
+
+            return `Inventario — ${term} (${filtered.length} registro${filtered.length === 1 ? '' : 's'}):\n\n${details}${extra}`;
+        }
+    }
+
+    // Búsqueda genérica
+    if (q.length > 2) {
+        const exactMatches = rows.filter(r => Object.values(r).some(val => {
+            const strVal = String(val || '').toLowerCase();
+            return strVal === q || (strVal.includes(q) && strVal.length < 50);
+        }));
+
+        if (exactMatches.length > 0) {
+            const results = exactMatches.slice(0, 3).map(r => {
+                for (const val of Object.values(r)) {
+                    const strVal = String(val || '').toLowerCase();
+                    if (strVal.includes(q)) return `• ${String(val)}`;
+                }
+                return '';
+            }).filter(Boolean).join('\n');
+            return `Coincidencias encontradas:\n${results}`;
+        }
+    }
+
+    return chatExecutiveFallback();
+}
+
+/* ─── SECCIÓN: NAVEGACIÓN Y FILTROS GLOBALES ───
+   showPanel()              → Cambia entre Inventario, Análisis, Alertas y Reporte
+   Variables selected*      → Estado de filtros en reportes y análisis */
+
+// Filtro de mes en panel Reporte (index.html → #month-filter)
 let selectedMonth = '';
 // Variable global para el filtro de empleado en reporte
 let selectedReportEmployee = '';
@@ -74,11 +679,23 @@ function renderAnalysisSheetFilterOptions() {
 }
 
 function logout() {
+    // Confirmar cierre de sesión
+    if (!confirm("¿Deseas cerrar sesión?")) {
+        return;
+    }
+    
     document.getElementById("dashboard").style.display = "none";
+    document.getElementById("dashboard").classList.add("hidden");
     document.getElementById("login-section").style.display = "flex";
 
+    const fab = document.getElementById('chat-open-fab');
+    if (fab) fab.style.display = 'none';
+    closeChat();
+
+    // Limpiar campos de login
     document.getElementById("usuario").value = "";
     document.getElementById("password").value = "";
+    document.getElementById("usuario").focus();
 }
 
 function showPanel(panelId) {
@@ -119,6 +736,10 @@ function showPanel(panelId) {
         renderInventory();
     }
 }
+
+/* ─── SECCIÓN: ALERTAS (index.html → #alerts-panel) ───
+   getAlertsFromInventory() → Detecta casos críticos o pendientes en el inventario
+   renderAlerts()           → Pinta la lista de alertas en pantalla */
 
 function getAlertsFromInventory() {
     ensureInventoryBySheetModel();
@@ -206,6 +827,10 @@ function renderAlerts() {
         </div>
     `).join('');
 }
+
+/* ─── SECCIÓN: REPORTES (index.html → #reportes-panel) ───
+   generateReportesFromInventory() → Convierte filas del inventario en datos de reporte
+   renderReportes()                → Tabla + gráfica con filtros por mes/empleado/equipo */
 
 function getDefaultExcelFieldLabels() {
     return {
@@ -478,6 +1103,10 @@ function renderReportes() {
     renderReportChart();
 }
 
+/* ─── SECCIÓN: PERSISTENCIA (localStorage del navegador) ───
+   saveInventoryToStorage()  → Guarda inventario editado para no perder cambios
+   loadInventoryFromStorage() → Recupera datos al recargar la página */
+
 function loadInventoryFromStorage() {
     const stored = localStorage.getItem('inventoryData');
     if (!stored) {
@@ -579,6 +1208,11 @@ let analysisTypeChart = null;
 let reportChart = null;
 const analysisTypeColors = ['#e17055', '#6c5ce7', '#74b9ff', '#00b894', '#00d2d3', '#fdcb6e', '#e84393', '#00cec9'];
 const analysisTypeColorMap = {};
+
+/* ─── SECCIÓN: GRÁFICAS Chart.js (Análisis y Reporte) ───
+   initializeCharts()    → Crea gráficas de línea, dona y barras
+   buildTrendData()    → Serie temporal de fallos
+   renderReportChart() → Gráfica del panel Reporte */
 
 function getAnalysisTypeColor(label) {
     if (!label) {
@@ -992,6 +1626,11 @@ function renderReportChart() {
     reportChart.update();
 }
 
+/* ─── SECCIÓN: TABLA INVENTARIO (index.html → #inventory-panel) ───
+   renderInventoryTable() → Dibuja columnas y filas editables
+   addInventoryRow()      → Añade fila vacía
+   updateInventoryItem()  → Guarda celda al editar */
+
 function addInventoryRow() {
     if (!window.APP_MODEL) {
         window.APP_MODEL = {};
@@ -1037,6 +1676,11 @@ function deleteInventoryRow(index) {
 function isInventoryRowFilled(row) {
     return Object.values(row).some(value => String(value || '').trim() !== '');
 }
+
+/* ─── SECCIÓN: MODELO DE INVENTARIO (model/data.js → APP_MODEL.inventoryBySheet) ───
+   getAllInventoryFlat()      → Todas las filas de todas las hojas
+   ensureInventoryBySheetModel() → Asegura estructura válida del modelo
+   getSheetBundle()           → Datos de una hoja (columnas + filas + fieldMap) */
 
 function defaultInventoryFieldMap() {
     return {
@@ -1236,6 +1880,10 @@ function addInventorySheetTab() {
         renderReportes();
     }, 50);
 }
+
+/* ─── SECCIÓN: MÉTRICAS KPI (tarjetas morada/azul/roja del inventario) ───
+   getInventoryMetrics() → Calcula activos, utilización y alertas
+   renderMetrics()       → Actualiza #card-active, #card-utilization, #card-alerts */
 
 function getInventoryMetrics() {
     ensureInventoryBySheetModel();
@@ -1501,6 +2149,11 @@ function predictNextFailureEvent(inventory) {
         reason: `Promedio de ${roundedAvg} día(s) entre fallas para este equipo según el Excel.`
     };
 }
+
+/* ─── SECCIÓN: ANÁLISIS PREDICTIVO (index.html → #analysis-panel) ───
+   getAnalysisData()        → Riesgo, fallos estimados y probabilidades por equipo
+   predictNextFailureEvent() → Proyección del próximo fallo según historial
+   renderAnalysis()         → Actualiza gráficas, medidor y tabla de riesgo */
 
 function getAnalysisData() {
     ensureInventoryBySheetModel();
@@ -1795,6 +2448,11 @@ function commitActiveEdit() {
         active.blur();
     }
 }
+
+/* ─── SECCIÓN: IMPORTAR / EXPORTAR EXCEL ───
+   loadInventoryFromExcel()  → Lee .xlsx/.csv y carga todas las columnas
+   exportInventoryExcel()    → Descarga inventario con estilos (ExcelJS)
+   parseInventoryFromWorkbook() → Convierte hojas del libro a APP_MODEL */
 
 function normalizeHeader(value) {
     return value.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -2414,6 +3072,7 @@ function scrollAlertsUp() {
     container.scrollBy({ top: -300, behavior: 'smooth' });
 }
 
+/** Evita que texto del chat o tablas inserte HTML malicioso (seguridad XSS) */
 function escapeHtml(text) {
     return String(text)
         .replace(/&/g, '&amp;')
@@ -2430,6 +3089,7 @@ function columnUsesDateInput(colKey, fieldMap) {
     return isDateLikeColumnKey(colKey);
 }
 
+/** Dibuja la tabla del inventario, pestañas de hojas y enlaza edición de celdas */
 function renderInventory() {
     const container = document.querySelector('#inventory-panel .tabla-body');
     const tabsEl = document.getElementById('inventory-sheet-tabs');

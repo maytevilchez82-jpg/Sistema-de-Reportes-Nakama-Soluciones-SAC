@@ -1,7 +1,24 @@
-//datos//
+/**
+ * =============================================================================
+ * ARCHIVO: model/data.js
+ * CAPA:   Modelo (datos iniciales)
+ * =============================================================================
+ * Qué es:     Almacena la estructura base del inventario antes de cargar un Excel.
+ * Para qué:  Define columnas, mapeo de campos y filas de ejemplo en memoria.
+ * Quién lo usa: controller/app.js lee y escribe en window.APP_MODEL.
+ * =============================================================================
+ */
+
+// Objeto global del modelo — toda la app consulta estos datos
 window.APP_MODEL = {
+
+    // Inventario organizado por hojas (como pestañas de Excel)
     inventoryBySheet: {
+
+        // Hoja principal con datos de demostración
         Principal: {
+
+            // Nombres de columnas que se muestran en la tabla
             columns: [
                 "Empleado",
                 "Equipo",
@@ -12,6 +29,8 @@ window.APP_MODEL = {
                 "Fecha que se le entregó uno nuevo",
                 "Estado"
             ],
+
+            // Relación entre nombre interno del código y columna del Excel
             fieldMap: {
                 empleado: "Empleado",
                 equipo: "Equipo",
@@ -22,6 +41,8 @@ window.APP_MODEL = {
                 fechaEntregaNuevo: "Fecha que se le entregó uno nuevo",
                 estado: "Estado"
             },
+
+            // Filas de ejemplo (se reemplazan al importar un Excel real)
             rows: [
                 {
                     Empleado: "Cecy Salcedo Aranda",
@@ -56,6 +77,10 @@ window.APP_MODEL = {
             ]
         }
     },
+
+    // Nombre de la hoja activa en el panel Inventario
     activeInventorySheet: "Principal",
+
+    // Datos derivados para el panel Reporte (se generan desde el inventario)
     reportes: []
 };

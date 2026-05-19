@@ -1,14 +1,64 @@
 <!DOCTYPE html>
+<!--
+  =============================================================================
+  ARCHIVO: index.html
+  CAPA:    Vista principal (estructura de la página)
+  =============================================================================
+  Qué es:     Página única del Sistema Nakama (login + dashboard + chat).
+  Para qué:  Define las secciones visibles y enlaza CSS, datos y lógica JS.
+  Depende de: view/style.css | model/data.js | controller/app.js | librerías CDN
+  =============================================================================
+-->
 <html lang="es">
 <head>
+<!-- Metadatos: idioma, codificación y diseño adaptable a móviles -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sistema Nakama</title>
+<!-- Hoja de estilos global del proyecto -->
 <link rel="stylesheet" href="view/style.css">
 </head>
 <body>
 
-<!-- ================= FRAMEWORK LOGIN ================= -->
+<script>
+/* ARCHIVO: index.html (script embebido)
+   FUNCIÓN: Animación de etiquetas flotantes en los campos de login */
+document.addEventListener('DOMContentLoaded', function() {
+    const inputs = document.querySelectorAll('.input-group input');
+    
+    inputs.forEach(input => {
+        // Manejar cambios en el input
+        input.addEventListener('input', function() {
+            if (this.value.trim()) {
+                this.classList.add('has-value');
+            } else {
+                this.classList.remove('has-value');
+            }
+        });
+        
+        // Manejar focus
+        input.addEventListener('focus', function() {
+            this.parentElement.classList.add('focused');
+        });
+        
+        // Manejar blur
+        input.addEventListener('blur', function() {
+            this.parentElement.classList.remove('focused');
+            if (!this.value.trim()) {
+                this.classList.remove('has-value');
+            }
+        });
+        
+        // Inicializar en caso de que haya valores precargados
+        if (input.value.trim()) {
+            input.classList.add('has-value');
+        }
+    });
+});
+</script>
+
+<!-- SECCIÓN LOGIN | id="login-section" | Visible al iniciar la app -->
+<!-- Llama a login() en controller/app.js | Credenciales demo: admin / admin -->
 <section id="login-section" class="login-container">
 
     <div class="left">
@@ -30,17 +80,18 @@
                 <label>CONTRASEÑA</label>
             </div>
 
-            <button onclick="login()">ENTRAR</button>
+            <button class="login-btn" id="login-btn" onclick="login()">ENTRAR</button>
         </div>
     </div>
 
 </section>
 
-<!-- ================= DASHBOARD ================= -->
+<!-- SECCIÓN DASHBOARD | id="dashboard" | Panel principal tras iniciar sesión -->
 <section id="dashboard" class="hidden">
 
 <div class="container">
 
+    <!-- MENÚ LATERAL | showPanel() cambia entre inventario, análisis, alertas y reporte -->
     <aside class="sidebar">
         <div class="sidebar-brand">
             <img src="nakama_imagen_dashboard.jpeg" alt="Nakama Logo">
@@ -59,6 +110,7 @@
 
     <main class="main">
 
+        <!-- PANEL INVENTARIO | Tabla editable, importar/exportar Excel, tarjetas KPI -->
         <div id="inventory-panel">
             <h3>Panel de Control - Sistema de Gestión de Equipos</h3>
 
@@ -100,6 +152,7 @@
             </div>
         </div>
 
+        <!-- PANEL ANÁLISIS | Gráficas Chart.js, riesgo predictivo y tabla de probabilidad -->
         <div id="analysis-panel" class="hidden">
             <h3>Análisis Predictivo con IA</h3>
             <div class="separator"></div>
@@ -181,6 +234,7 @@
             </div>
         </div>
 
+        <!-- PANEL ALERTAS | Lista dinámica generada desde inventario (renderAlerts) -->
         <div id="alerts-panel" class="hidden">
             <h3>Alertas</h3>
             <div class="separator"></div>
@@ -191,6 +245,7 @@
             </div>
         </div>
 
+        <!-- PANEL REPORTE | Filtros por mes/empleado/equipo + grafica y tabla -->
         <div id="reportes-panel" class="hidden">
             <div class="report-top">
                 <h3>Reporte</h3>
@@ -238,14 +293,38 @@
     </main>
 
 </div>
+    <!-- BOTÓN FLOTANTE | Abre el Asistente Ejecutivo (chat sobre datos del Excel) -->
+    <button id="chat-open-fab" class="chat-open-fab" onclick="openChat()" aria-label="Abrir asistente ejecutivo">🤖</button>
+</section>
+
+<!-- WIDGET CHAT | Consultas en lenguaje natural → controller/app.js (getChatResponse) -->
+<section id="chat-widget" class="chat-widget hidden" aria-labelledby="chat-title">
+    <div class="chat-header">
+        <div>
+            <strong id="chat-title">Asistente Ejecutivo</strong>
+            <p>Inteligencia operativa sobre su inventario corporativo.</p>
+        </div>
+        <button type="button" class="chat-close" onclick="closeChat()" aria-label="Cerrar chat">×</button>
+    </div>
+    <div class="chat-body" role="log" aria-live="polite"></div>
+    <div class="chat-input-row">
+        <input id="chat-input" type="text" placeholder="Ej.: ¿Cuántos registros hay? ¿Casos pendientes?" onkeydown="if(event.key==='Enter'){sendChatMessage();}">
+        <button onclick="sendChatMessage()">Consultar</button>
+    </div>
+</section>
 
 </section>
 
+<!-- xlsx: leer archivos Excel importados -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- exceljs + file-saver: exportar inventario con formato profesional -->
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+<!-- chart.js: gráficas de análisis predictivo y reportes -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- model/data.js: datos iniciales del inventario -->
 <script src="model/data.js"></script>
+<!-- controller/app.js: toda la lógica (login, tablas, Excel, chat, IA) -->
 <script src="controller/app.js"></script>
 </body>
 </html>
