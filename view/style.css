@@ -1000,19 +1000,69 @@ button:active{
 .report-table table,
 .inventory-table{
     width:100%;
-    border-collapse:collapse;
+    border-collapse:separate;
+    border-spacing:0 10px;
     font-size:0.95rem;
 }
 
+.inventory-table thead th{
+    background:#0b1e6d;
+    color:#fff;
+    font-weight:700;
+    padding:16px 14px;
+    border:none;
+    text-transform:uppercase;
+    letter-spacing:0.04em;
+    font-size:0.9rem;
+}
+
+.inventory-table tbody tr{
+    background:#ffffff;
+    border-radius:18px;
+    box-shadow:0 10px 20px rgba(0,0,0,0.06);
+    transition:transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+.inventory-table tbody tr:hover{
+    transform:translateY(-2px);
+    box-shadow:0 16px 28px rgba(0,0,0,0.1);
+}
+
+.inventory-table th,
+.inventory-table td,
 .risk-table th,
 .risk-table td,
 .report-table th,
-.report-table td,
-.inventory-table th,
-.inventory-table td{
-    padding:14px 12px;
+.report-table td{
+    padding:14px 14px;
     border-bottom:1px solid #e9ecef;
     text-align:left;
+}
+
+.inventory-table tbody tr:nth-child(even){
+    background:#f6f9ff;
+}
+
+.inventory-table td{
+    vertical-align:middle;
+}
+
+.inventory-table td select{
+    width:100%;
+    min-width:160px;
+    padding:10px 12px;
+    border:1px solid #d7e2f2;
+    border-radius:999px;
+    background:#f7f9ff;
+    color:#19325d;
+    font-weight:700;
+    outline:none;
+    transition:border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.inventory-table td select:focus{
+    border-color:#2d7ff9;
+    box-shadow:0 0 0 4px rgba(45,127,249,0.16);
 }
 
 .risk-table thead th,
