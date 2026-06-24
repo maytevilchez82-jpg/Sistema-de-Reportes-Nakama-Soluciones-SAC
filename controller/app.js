@@ -747,6 +747,12 @@ function getAlertsFromInventory() {
 
     if (unresolved.length > 0) {
         alerts.push(`⚠ ${unresolved.length} caso(s) sin resolver`);
+        unresolved.forEach(item => {
+            const empleado = escapeHtml(String(item.empleado || 'Empleado desconocido'));
+            const equipo = escapeHtml(String(item.equipo || 'Equipo desconocido'));
+            const estado = escapeHtml(String(item.estado || 'No resuelto'));
+            alerts.push(`• ${empleado} / ${equipo} — ${estado}`);
+        });
     }
 
     // Detectar casos críticos no resueltos
@@ -3121,6 +3127,14 @@ function renderInventory() {
     const rows = inventory.map((item, index) => {
         const cells = columns.map((colKey, ci) => {
             const val = item[colKey] != null ? String(item[colKey]) : '';
+            const internal = internalFieldForColumnKey(colKey, fieldMap);
+            if (internal === 'estado') {
+                const resolved = /resuelto|solucionado|entregado|ok|activo/i.test(val);
+                return `<td><select data-index="${index}" data-col-i="${ci}">` +
+                    `<option value="Resuelto"${resolved ? ' selected' : ''}>Resuelto</option>` +
+                    `<option value="No resuelto"${!resolved ? ' selected' : ''}>No resuelto</option>` +
+                `</select></td>`;
+            }
             if (columnUsesDateInput(colKey, fieldMap)) {
                 return `<td><input type="date" data-index="${index}" data-col-i="${ci}" value="${formatDateForInput(val)}"></td>`;
             }
@@ -3149,6 +3163,17 @@ function renderInventory() {
 
         cell.addEventListener('blur', saveCell);
         cell.addEventListener('input', saveCell);
+    });
+
+    const selectInputs = container.querySelectorAll('select[data-index]');
+    selectInputs.forEach(select => {
+        const saveSelect = () => {
+            const index = parseInt(select.dataset.index, 10);
+            const colI = parseInt(select.dataset.colI, 10);
+            updateInventoryItem(index, colI, select.value);
+        };
+
+        select.addEventListener('change', saveSelect);
     });
 
     const dateInputs = container.querySelectorAll('input[type="date"]');
